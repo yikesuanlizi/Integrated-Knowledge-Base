@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "agentic-knowledge-os"
+version = "0.1.0"
+description = "Agentic RAG System: Document ingestion to intelligent Q&A"
+authors = ["Developer <developer@example.com>"]
+license = "MIT"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+fastapi = "*"
+uvicorn = "*"
+pydantic = "*"
+pydantic-settings = "*"
+sqlalchemy = "*"
+asyncpg = "*"
+pgvector = "*"
+pymilvus = "*"
+elasticsearch = "*"
+minio = "*"
+langgraph = "*"
+langchain-core = "*"
+docling = "*"
+pypdf = "*"
+python-docx = "*"
+httpx = "*"
+sentry-sdk = "*"
+itsdangerous = "*"
+requests = "*"
+starlette = "*"
+python-multipart = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-asyncio = "*"
+black = "*"
+flake8 = "*"
+mypy = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
