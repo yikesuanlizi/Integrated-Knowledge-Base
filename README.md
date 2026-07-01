@@ -1,17 +1,17 @@
 # Agentic Knowledge OS
 
-从文档摄入到智能问答的完整 Agentic RAG 系统。
+A full-stack Agentic RAG system — from document ingestion to intelligent Q&A.
 
-## 特性
+## Features
 
-- **知识摄入**：支持 PDF / DOCX / TXT / MD，自动分块、实体抽取、元数据推断
-- **知识编译**：两阶段 LLM 编译，生成结构化 Wiki 卡片
-- **检索引擎**：向量召回 + 全文检索 + BM25 重排 + Wikilink 图扩展
-- **Agent 编排**：LangGraph 12 节点 pipeline，三路并行召回 + 证据门控
-- **质量治理**：自动审核策略 + Linter + Freshness 检测 + 活动日志
-- **互操作**：MCP Server + JSONL/MD 导出导入
+- **Knowledge Ingestion**: Supports PDF / DOCX / TXT / MD with automatic chunking, entity extraction, and metadata inference
+- **Knowledge Compilation**: Two-phase LLM compilation pipeline that generates structured Wiki cards
+- **Retrieval Engine**: Vector recall + full-text search + BM25 reranking + Wikilink graph expansion
+- **Agent Orchestration**: LangGraph 12-node pipeline with parallel multi-channel recall + evidence gating
+- **Quality Governance**: Automated review policy + Linter + Freshness detection + activity logging
+- **Interoperability**: MCP Server + JSONL/MD export & import
 
-## 架构
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -20,7 +20,7 @@
 │  /api/wiki  /api/review  /api/eval          │
 │  /api/export  /api/mcp  /api/health         │
 ├─────────────────────────────────────────────┤
-│    LangGraph Agent Pipeline (12 节点)        │
+│    LangGraph Agent Pipeline (12 nodes)       │
 │  classify_intent → extract_query →          │
 │  [recall_wiki ∥ recall_chunks ∥            │
 │   recall_entities] → merge → expand_graph   │
@@ -36,129 +36,129 @@
 └─────────────────────────────────────────────┘
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 启动基础设施
+### 1. Start Infrastructure
 
 ```bash
-cd E:\langchain\RAG
 docker-compose up -d
 ```
 
-启动 PostgreSQL / Milvus / Elasticsearch / MinIO / etcd 容器。
+Starts PostgreSQL / Milvus / Elasticsearch / MinIO / etcd containers.
 
-### 2. 安装 Python 依赖
+### 2. Install Python Dependencies
 
 ```bash
 pip install -e .
 ```
 
-### 3. 配置系统环境变量
+### 3. Configure Environment Variables
 
-后端不读取项目 `.env` 文件。环境变量只放密钥，模型名和 API 地址是应用配置，不通过环境变量维护。
+The backend does not read a project `.env` file. Environment variables are only for API keys — model names and API endpoints are application configuration, not managed via env vars.
 
-PowerShell 当前会话示例：
+PowerShell (current session):
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "sk-..."
 $env:GITEE_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
-PowerShell 用户级系统环境变量示例：
+PowerShell (user-level persistent):
 
 ```powershell
 [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "sk-...", "User")
 [Environment]::SetEnvironmentVariable("GITEE_API_KEY", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "User")
 ```
 
-Docker Compose 启动 backend 时会把这些系统环境变量透传进容器；不要在项目目录里维护 `.env` 文件。
+Docker Compose passes these system environment variables into the backend container. Do not maintain a `.env` file in the project directory.
 
-### 4. RAG、OCR 与模型选择
+### 4. RAG, OCR & Model Selection
 
-- **Embedding 只需要文本模型**：Milvus 存的是 chunk / Wiki card / 元数据文本向量，不需要视觉语言模型。
-- **OCR 是摄入解析能力，不是 embedding 能力**：PDF/DOCX/TXT/MD 的可复制文本直接解析；扫描 PDF、图片手册、截图证据才需要 OCR。
-- **主 LLM 保留 DeepSeek 官方接口**：用于编译、问答生成、证据校验，密钥使用 `DEEPSEEK_API_KEY`。
-- **Embedding / Rerank / OCR / VL 走 ai.gitee 聚合平台**：统一使用 `GITEE_API_KEY`。
-- **不部署本地模型**：Docker Compose 只部署 Postgres / Milvus / ES / MinIO / etcd，不部署 LLM、embedding、rerank 或 VL 模型。
-- **需要图片理解或图表理解时**：使用 ai.gitee 的 OCR/VL 模型把图片转成文本证据；向量入库仍然走文本 embedding。
+- **Embedding requires only a text model**: Milvus stores text vectors for chunks / Wiki cards / metadata — no vision-language model needed.
+- **OCR is an ingestion parsing capability, not an embedding capability**: Copyable text from PDF/DOCX/TXT/MD is parsed directly; scanned PDFs, image manuals, and screenshot evidence require OCR.
+- **Main LLM uses the DeepSeek official API**: Used for compilation, answer generation, and evidence validation. Key: `DEEPSEEK_API_KEY`.
+- **Embedding / Rerank / OCR / VL via ai.gitee platform**: Unified under `GITEE_API_KEY`.
+- **No local models deployed**: Docker Compose only deploys Postgres / Milvus / ES / MinIO / etcd — no LLM, embedding, rerank, or VL models.
+- **When image/chart understanding is needed**: Use ai.gitee's OCR/VL models to convert images to text evidence; vector ingestion still uses text embedding.
 
-推荐配置：
+Recommended configuration:
 
-| 场景 | 变量 | 示例 |
+| Component | Variable | Example |
 |---|---|---|
-| DeepSeek 官方 LLM | API Base | `https://api.deepseek.com` |
-| DeepSeek 官方 LLM | 密钥环境变量 | `DEEPSEEK_API_KEY` |
-| DeepSeek 官方 LLM | 默认模型 | `deepseek-v4-flash` |
-| ai.gitee 聚合平台 | API Base | `https://ai.gitee.com/v1` |
-| ai.gitee 聚合平台 | 密钥环境变量 | `GITEE_API_KEY` |
-| 文本向量 | 模型 | `Qwen3-Embedding-8B` |
-| 文本向量 | 维度 | `1024` |
-| Rerank | 模型 | `Qwen3-Reranker-8B` |
-| OCR | 模型 | `DeepSeek-OCR-2` |
-| VL | 模型 | `MiniMax-M3` |
+| DeepSeek LLM | API Base | `https://api.deepseek.com` |
+| DeepSeek LLM | Key env var | `DEEPSEEK_API_KEY` |
+| DeepSeek LLM | Default model | `deepseek-v4-flash` |
+| ai.gitee platform | API Base | `https://ai.gitee.com/v1` |
+| ai.gitee platform | Key env var | `GITEE_API_KEY` |
+| Text embedding | Model | `Qwen3-Embedding-8B` |
+| Text embedding | Dimensions | `1024` |
+| Rerank | Model | `Qwen3-Reranker-8B` |
+| OCR | Model | `DeepSeek-OCR-2` |
+| VL | Model | `MiniMax-M3` |
 
-ai.gitee 请求约定：
+ai.gitee API conventions:
 
-- embedding 使用 `/embeddings`，附带 `X-Failover-Enabled: true`，默认 `dimensions=1024`。
-- rerank 使用 `/rerank`，附带 `X-Failover-Enabled: true`。
-- OCR/VL 使用 `/chat/completions`，消息内容支持 `image_url` + `text`。
+- Embedding: `/embeddings` with `X-Failover-Enabled: true`, default `dimensions=1024`.
+- Rerank: `/rerank` with `X-Failover-Enabled: true`.
+- OCR/VL: `/chat/completions`, message content supports `image_url` + `text`.
 
-### 5. 启动后端
+### 5. Start Backend
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 6. 运行冒烟测试
+### 6. Run Smoke Test
 
 ```bash
 python scripts/smoke_test.py
 ```
 
-## API 端点
+## API Endpoints
 
-| 端点 | 方法 | 描述 |
+| Endpoint | Method | Description |
 |---|---|---|
-| `/api/health/` | GET | 系统健康 |
-| `/api/ingest/file` | POST | 上传单个文件 |
-| `/api/ingest/path` | POST | 摄入目录 |
-| `/api/compile/` | POST | 触发编译 |
-| `/api/query/` | POST | 智能问答（同步） |
-| `/api/query/stream` | POST | 智能问答（SSE） |
-| `/api/wiki/` | GET | 列出卡片 |
-| `/api/wiki/{id}` | GET | 卡片详情 |
-| `/api/wiki/{id}/markdown` | GET | Markdown 渲染 |
-| `/api/review/` | GET | 审核队列 |
-| `/api/eval/health` | POST | 健康评估 |
-| `/api/eval/citation` | POST | 引用评估 |
-| `/api/eval/retrieval` | POST | 检索评估 |
-| `/api/eval/evidence` | POST | 证据评估 |
-| `/api/export/run` | POST | 导出 |
-| `/api/mcp/tools` | GET | MCP 工具列表 |
-| `/api/mcp/call` | POST | MCP 工具调用 |
+| `/api/health/` | GET | System health |
+| `/api/ingest/file` | POST | Upload single file |
+| `/api/ingest/path` | POST | Ingest directory |
+| `/api/compile/` | POST | Trigger compilation |
+| `/api/query/` | POST | Q&A (synchronous) |
+| `/api/query/stream` | POST | Q&A (SSE streaming) |
+| `/api/wiki/` | GET | List cards |
+| `/api/wiki/{id}` | GET | Card detail |
+| `/api/wiki/{id}/markdown` | GET | Markdown render |
+| `/api/review/` | GET | Review queue |
+| `/api/eval/health` | POST | Health evaluation |
+| `/api/eval/citation` | POST | Citation evaluation |
+| `/api/eval/retrieval` | POST | Retrieval evaluation |
+| `/api/eval/evidence` | POST | Evidence evaluation |
+| `/api/export/run` | POST | Export |
+| `/api/mcp/tools` | GET | MCP tool list |
+| `/api/mcp/call` | POST | MCP tool invocation |
 
-## 目录结构
+## Directory Structure
 
 ```
-RAG/
 ├── app/
-│   ├── api/                  # REST API 路由
-│   ├── clients/              # 外部服务客户端（LLM/ES/Milvus/MinIO）
-│   ├── compiler/             # 两阶段 LLM 编译 + Wiki 卡片
-│   ├── conf/                 # 配置
-│   ├── core/                 # 核心（数据库、日志）
-│   ├── eval/                 # 评测层
-│   ├── ingest/               # 摄入（parsers/chunking/entities）
+│   ├── api/                  # REST API routes
+│   ├── clients/              # External service clients (LLM/ES/Milvus/MinIO)
+│   ├── compiler/             # Two-phase LLM compilation + Wiki cards
+│   ├── conf/                 # Configuration
+│   ├── core/                 # Core (database, logging)
+│   ├── eval/                 # Evaluation layer
+│   ├── ingest/               # Ingestion (parsers/chunking/entities)
 │   ├── models/               # ORM + Pydantic
-│   ├── quality/              # 质量治理（policy/linter/freshness/log）
-│   ├── retrieval/            # 检索（intent/features/repos/ranking）
+│   ├── quality/              # Quality governance (policy/linter/freshness/log)
+│   ├── retrieval/            # Retrieval (intent/features/repos/ranking)
 │   ├── agent/                # LangGraph Agent
 │   │   ├── state.py
 │   │   ├── graph.py
-│   │   └── nodes/            # 12 个节点
-│   └── main.py               # FastAPI 入口
-├── samples/                  # 示例文档
-├── scripts/                  # 脚本（smoke_test 等）
+│   │   └── nodes/            # 12 nodes
+│   └── main.py               # FastAPI entry
+├── frontend/                 # Vue 3 + Tailwind CSS
+├── samples/                  # Sample documents
+├── scripts/                  # Scripts (smoke_test, etc.)
+├── tests/                    # Test suite
 ├── docker-compose.yml
 ├── Dockerfile
 ├── Makefile
@@ -166,34 +166,34 @@ RAG/
 └── README.md
 ```
 
-## 关键设计
+## Key Design
 
-### 两阶段编译
+### Two-Phase Compilation
 
-- **Phase 1**：从每个 chunk 提取概念列表（name / type / summary / source_text）
-- **Phase 2**：为每个概念生成结构化页面（title / summary / sections / key_facts / warnings / related_concepts）
+- **Phase 1**: Extract concept lists from each chunk (name / type / summary / source_text)
+- **Phase 2**: Generate structured pages for each concept (title / summary / sections / key_facts / warnings / related_concepts)
 
-### LangGraph Agent 12 节点
+### LangGraph Agent 12 Nodes
 
-1. `classify_intent` - 意图分类
-2. `extract_query` - 查询扩展
-3. `recall_wiki` - 召回 Wiki 卡片
-4. `recall_chunks` - 召回原始 chunk
-5. `recall_entities` - 实体全文召回
-6. `merge_results` - 合并去重
-7. `expand_graph` - Wikilink N-hop 扩展
-8. `rerank` - 混合重排
-9. `build_evidence` - 构造证据包
-10. `generate_answer` - LLM 生成答案
-11. `validate_evidence` - 证据充分性验证
-12. `correct_answer` - 不充分时降级
+1. `classify_intent` - Intent classification
+2. `extract_query` - Query expansion
+3. `recall_wiki` - Wiki card recall
+4. `recall_chunks` - Raw chunk recall
+5. `recall_entities` - Entity full-text recall
+6. `merge_results` - Merge & deduplicate
+7. `expand_graph` - Wikilink N-hop expansion
+8. `rerank` - Hybrid reranking
+9. `build_evidence` - Evidence package construction
+10. `generate_answer` - LLM answer generation
+11. `validate_evidence` - Evidence sufficiency validation
+12. `correct_answer` - Fallback when insufficient
 
-### 质量治理
+### Quality Governance
 
-- **Review Policy**：自动决定哪些卡片需要 hold（低置信度 / 安全关键词 / 引用缺失）
-- **Linter**：规则化检查 + LLM 增强质量评估
-- **Freshness**：基于内容哈希 + LLM 检测过时
-- **Activity Log**：所有操作的可追溯记录
+- **Review Policy**: Automatically determines which cards need to be held (low confidence / safety keywords / missing references)
+- **Linter**: Rule-based checks + LLM-enhanced quality assessment
+- **Freshness**: Content hash + LLM-based staleness detection
+- **Activity Log**: Traceable records for all operations
 
 ## License
 
