@@ -1,8 +1,10 @@
 import json
+import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
+from app.agent.trace import current_trace_id, record_llm_call
 from app.conf.app_config import config
 from app.core.log import logger
 
@@ -32,6 +34,7 @@ class LLMClient:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        scene: str = "unknown",
     ) -> str:
         headers = _json_headers(self._api_key)
         payload = {
@@ -40,9 +43,34 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        response = await self._client.post("/chat/completions", headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
+        user_prompt = next((m["content"] for m in messages if m.get("role") == "user"), "")
+        trace_id = current_trace_id.get()
+        t0 = time.perf_counter()
+        try:
+            response = await self._client.post("/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            completion = response.json()["choices"][0]["message"]["content"]
+            usage = response.json().get("usage", {})
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            record_llm_call(
+                trace_id=trace_id, scene=scene,
+                system_prompt=system_prompt, user_prompt=user_prompt,
+                completion=completion, model_name=model or self._model_name,
+                duration_ms=duration_ms, status="success",
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+            )
+            return completion
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            record_llm_call(
+                trace_id=trace_id, scene=scene,
+                system_prompt=system_prompt, user_prompt=user_prompt,
+                completion="", model_name=model or self._model_name,
+                duration_ms=duration_ms, status="error", error=str(e)[:500],
+            )
+            raise
 
     async def generate_stream(
         self,

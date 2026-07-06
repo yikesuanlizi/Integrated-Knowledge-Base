@@ -66,6 +66,7 @@ async def _run_async(state: AgentState) -> AgentState:
             ],
             temperature=0.2,
             max_tokens=2500,
+            scene="generate_answer",
         )
         if not isinstance(state.answer, str):
             state.answer = str(state.answer)

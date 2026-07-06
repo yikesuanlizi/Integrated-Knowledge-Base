@@ -1,6 +1,9 @@
 """LangGraph Agent 编排：12 节点 pipeline。"""
 from __future__ import annotations
 
+import functools
+import uuid
+
 from langgraph.graph import END, StateGraph
 
 from app.agent.nodes.build_evidence import build_evidence_node
@@ -17,28 +20,54 @@ from app.agent.nodes.recall_wiki import recall_wiki_node
 from app.agent.nodes.rerank import rerank_node
 from app.agent.nodes.validate_evidence import validate_evidence_node, validate_evidence_router
 from app.agent.state import AgentState
+from app.agent.trace import current_trace_id, finish_node, start_node
 
 
 def _planner_router(state: AgentState) -> str:
     return getattr(state, "planner_route", "fact") or "fact"
 
 
+def _wrap_node(name: str, fn):
+    """包装 node 函数，自动记录入口/出口耗时和输入输出摘要。"""
+    @functools.wraps(fn)
+    def wrapper(state):
+        trace_id = getattr(state, "trace_id", "") or ""
+        token = current_trace_id.set(trace_id)
+        input_summary = str(getattr(state, "question", ""))[:200] if name in ("classify_intent", "extract_query") else ""
+        start_node(state, name, input_summary)
+        try:
+            result = fn(state)
+            output_summary = ""
+            if hasattr(result, "answer") and name == "generate_answer":
+                output_summary = str(result.answer)[:200]
+            elif hasattr(result, "intent") and name == "classify_intent":
+                output_summary = str(getattr(result.intent, "route", ""))[:200]
+            finish_node(state, name, output_summary, status="success")
+            return result
+        except Exception as e:
+            finish_node(state, name, "", status="error", error=str(e)[:500])
+            raise
+        finally:
+            current_trace_id.reset(token)
+    return wrapper
+
+
 def _build_graph() -> StateGraph:
     builder = StateGraph(AgentState)
 
-    builder.add_node("classify_intent", classify_intent_node)
-    builder.add_node("extract_query", extract_query_node)
-    builder.add_node("recall_wiki", recall_wiki_node)
-    builder.add_node("recall_chunks", recall_chunks_node)
-    builder.add_node("recall_entities", recall_entities_node)
-    builder.add_node("recall_structured_metadata", recall_structured_metadata_node)
-    builder.add_node("merge_results", merge_results_node)
-    builder.add_node("expand_graph", expand_graph_node)
-    builder.add_node("rerank", rerank_node)
-    builder.add_node("build_evidence", build_evidence_node)
-    builder.add_node("generate_answer", generate_answer_node)
-    builder.add_node("validate_evidence", validate_evidence_node)
-    builder.add_node("correct_answer", correct_answer_node)
+    builder.add_node("classify_intent", _wrap_node("classify_intent", classify_intent_node))
+    builder.add_node("extract_query", _wrap_node("extract_query", extract_query_node))
+    builder.add_node("recall_wiki", _wrap_node("recall_wiki", recall_wiki_node))
+    builder.add_node("recall_chunks", _wrap_node("recall_chunks", recall_chunks_node))
+    builder.add_node("recall_entities", _wrap_node("recall_entities", recall_entities_node))
+    builder.add_node("recall_structured_metadata", _wrap_node("recall_structured_metadata", recall_structured_metadata_node))
+    builder.add_node("merge_results", _wrap_node("merge_results", merge_results_node))
+    builder.add_node("expand_graph", _wrap_node("expand_graph", expand_graph_node))
+    builder.add_node("rerank", _wrap_node("rerank", rerank_node))
+    builder.add_node("build_evidence", _wrap_node("build_evidence", build_evidence_node))
+    builder.add_node("generate_answer", _wrap_node("generate_answer", generate_answer_node))
+    builder.add_node("validate_evidence", _wrap_node("validate_evidence", validate_evidence_node))
+    builder.add_node("correct_answer", _wrap_node("correct_answer", correct_answer_node))
 
     builder.set_entry_point("classify_intent")
     builder.add_edge("classify_intent", "extract_query")
@@ -99,7 +128,8 @@ except Exception as e:
 
 def run_agent_sync(question: str, top_k: int = 8) -> AgentState:
     """同步执行入口。"""
-    initial_state = AgentState(question=question)
+    trace_id = str(uuid.uuid4())
+    initial_state = AgentState(question=question, trace_id=trace_id)
     initial_state.query_features["top_k"] = top_k
     if agent_graph is None:
         initial_state.answer = "Agent graph 未初始化，请检查依赖。"

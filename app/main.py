@@ -13,6 +13,7 @@ from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
 from app.api.knowledge import router as knowledge_router
 from app.api.mcp import router as mcp_router
+from app.api.monitor import router as monitor_router
 from app.api.nl2sql import router as nl2sql_router
 from app.api.query import router as query_router
 from app.api.review import router as review_router
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(nl2sql_router, prefix="/api/nl2sql", tags=["nl2sql"])
     app.include_router(health_router, prefix="/api/health", tags=["health"])
     app.include_router(knowledge_router, prefix="/api/knowledge", tags=["knowledge"])
+    app.include_router(monitor_router, prefix="/api/monitor", tags=["monitor"])
 
     return app
 

@@ -18,6 +18,7 @@ async def call_llm_json(
     temperature: float = 0.2,
     max_tokens: int = 4096,
     max_retries: int = 2,
+    scene: str = "compile",
 ) -> Any:
     """调用 LLM 并解析 JSON 输出。失败时尝试修复。"""
     last_error: Optional[Exception] = None
@@ -32,6 +33,7 @@ async def call_llm_json(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                scene=scene,
             )
             return _parse_json(content)
         except Exception as e:

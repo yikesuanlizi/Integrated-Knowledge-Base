@@ -399,3 +399,88 @@ export interface EntityListResponse {
   page: number;
   page_size: number;
 }
+
+// ============ Monitor ============
+
+export interface QueryTraceListItem {
+  trace_id: string;
+  question: string;
+  answer_summary: string;
+  duration_ms: number;
+  node_count: number;
+  llm_call_count: number;
+  status: string;
+  intent: string;
+  created_at: string | null;
+}
+
+export interface NodeExecutionRecord {
+  node_name: string;
+  input_summary: string;
+  output_summary: string;
+  duration_ms: number;
+  status: string;
+  error: string;
+}
+
+export interface LLMCallListItem {
+  call_id: string;
+  trace_id: string;
+  scene: string;
+  model_name: string;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  status: string;
+  created_at: string | null;
+}
+
+export interface LLMCallDetail {
+  call_id: string;
+  trace_id: string;
+  scene: string;
+  system_prompt: string;
+  user_prompt: string;
+  completion: string;
+  model_name: string;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  status: string;
+  error: string;
+  created_at: string | null;
+}
+
+export interface QueryTraceDetail {
+  trace_id: string;
+  question: string;
+  answer_summary: string;
+  status: string;
+  intent: string;
+  stages: RetrievalTraceStage[];
+  channels: Record<string, RetrievalTraceChannel>;
+  selected_evidence: RetrievalTraceCandidate[];
+  evidence_sufficiency: Record<string, unknown>;
+  node_executions: NodeExecutionRecord[];
+  llm_calls: LLMCallListItem[];
+  created_at: string | null;
+}
+
+export interface MonitorNodeStat {
+  node_name: string;
+  avg_ms: number;
+  count: number;
+}
+
+export interface MonitorStats {
+  hours: number;
+  total_queries: number;
+  error_queries: number;
+  error_rate: number;
+  avg_query_ms: number;
+  total_llm_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  node_stats: MonitorNodeStat[];
+}

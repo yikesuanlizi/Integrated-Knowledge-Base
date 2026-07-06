@@ -17,6 +17,7 @@ async def get_db():
 async def init_database():
     # Import ORM models before create_all so SQLAlchemy metadata is populated.
     import app.models.documents  # noqa: F401
+    import app.models.monitoring  # noqa: F401
     from sqlalchemy import text
 
     async with engine.begin() as conn:

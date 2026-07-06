@@ -18,6 +18,11 @@ import type {
   QueryIntent,
   SQLResult,
   NL2SQLStatus,
+  QueryTraceListItem,
+  QueryTraceDetail,
+  LLMCallListItem,
+  LLMCallDetail,
+  MonitorStats,
   NL2SQLSeedResponse,
   NL2SQLQueryResponse,
   GoldenRetrievalCase,
@@ -449,5 +454,37 @@ export async function listChunks(keyword = "", status = "", page = 1, pageSize =
 /** 实体列表。 */
 export async function listEntities(keyword = "", entityType = "", page = 1, pageSize = 20): Promise<EntityListResponse> {
   const res = await http.get("/api/knowledge/entities", { params: { keyword, entity_type: entityType, page, page_size: pageSize } });
+  return res.data;
+}
+
+// ============ Monitor ============
+
+/** 查询历史列表。 */
+export async function listMonitorQueries(page = 1, pageSize = 20): Promise<{ items: QueryTraceListItem[]; total: number; page: number; page_size: number }> {
+  const res = await http.get("/api/monitor/queries", { params: { page, page_size: pageSize } });
+  return res.data;
+}
+
+/** 单次查询详情。 */
+export async function getMonitorQueryDetail(traceId: string): Promise<QueryTraceDetail> {
+  const res = await http.get(`/api/monitor/queries/${traceId}`);
+  return res.data;
+}
+
+/** LLM 调用列表。 */
+export async function listMonitorLLMCalls(page = 1, pageSize = 20, scene?: string): Promise<{ items: LLMCallListItem[]; total: number; page: number; page_size: number }> {
+  const res = await http.get("/api/monitor/llm-calls", { params: { page, page_size: pageSize, scene } });
+  return res.data;
+}
+
+/** 单次 LLM 调用详情。 */
+export async function getMonitorLLMCallDetail(callId: string): Promise<LLMCallDetail> {
+  const res = await http.get(`/api/monitor/llm-calls/${callId}`);
+  return res.data;
+}
+
+/** 聚合统计。 */
+export async function getMonitorStats(hours = 24): Promise<MonitorStats> {
+  const res = await http.get("/api/monitor/stats", { params: { hours } });
   return res.data;
 }

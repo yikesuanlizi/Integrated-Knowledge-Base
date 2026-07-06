@@ -9,6 +9,7 @@ from app.models.schemas import QueryIntent, RetrievalTrace
 @dataclass
 class AgentState:
     question: str = ""
+    trace_id: str = ""
     answer: str = ""
     needs_clarification: bool = False
     clarification_questions: List[str] = field(default_factory=list)

@@ -68,6 +68,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/WikiGraphView.vue"),
     meta: { title: "知识图谱" },
   },
+  {
+    path: "/monitor",
+    name: "monitor",
+    component: () => import("@/views/MonitorView.vue"),
+    meta: { title: "运行监控" },
+  },
 ];
 
 export const router = createRouter({

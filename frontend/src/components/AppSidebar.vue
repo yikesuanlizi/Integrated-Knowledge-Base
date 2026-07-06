@@ -31,6 +31,7 @@ const navGroups = [
     label: "运营",
     items: [
       { to: "/governance", label: "治理中心", icon: "shield-check" },
+      { to: "/monitor", label: "运行监控", icon: "activity" },
       { to: "/export", label: "导出管理", icon: "download" },
     ],
   },
