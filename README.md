@@ -41,7 +41,7 @@
 ### 1. 启动基础设施
 
 ```bash
-cd E:\langchain\RAG
+# 进入项目根目录（即 docker-compose.yml 所在目录）
 docker-compose up -d
 ```
 
