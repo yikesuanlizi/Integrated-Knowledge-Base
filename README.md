@@ -140,7 +140,7 @@ python scripts/smoke_test.py
 ## 目录结构
 
 ```
-RAG/
+.
 ├── app/
 │   ├── api/                  # REST API 路由
 │   ├── clients/              # 外部服务客户端（LLM/ES/Milvus/MinIO）
