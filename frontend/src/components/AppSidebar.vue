@@ -32,6 +32,7 @@ const navGroups = [
     items: [
       { to: "/governance", label: "治理中心", icon: "shield-check" },
       { to: "/monitor", label: "运行监控", icon: "activity" },
+      { to: "/config", label: "运行配置", icon: "settings" },
       { to: "/export", label: "导出管理", icon: "download" },
     ],
   },
@@ -51,8 +52,8 @@ function go(to: string) {
         <AppIcon name="plane" class="h-5 w-5" />
       </div>
       <div class="ak-brand-text">
-        <div class="ak-brand-title">航空知识平台</div>
-        <div class="ak-brand-subtitle">知识整理与问答工作台</div>
+        <div class="ak-brand-title">航空维修知识平台</div>
+        <div class="ak-brand-subtitle">维修知识整理与问答工作台</div>
       </div>
     </div>
     <nav class="ak-nav">
@@ -72,10 +73,6 @@ function go(to: string) {
         </button>
       </template>
     </nav>
-    <div class="ak-sidebar-foot">
-      <div class="ak-sidebar-foot-line">LangGraph · Milvus · Elasticsearch</div>
-      <div class="ak-sidebar-foot-version">v0.1.0</div>
-    </div>
   </aside>
 </template>
 
@@ -204,33 +201,13 @@ function go(to: string) {
   text-overflow: ellipsis;
 }
 
-.ak-sidebar-foot {
-  padding: 14px 20px;
-  border-top: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-
-.ak-sidebar-foot-line {
-  font-size: 0.6875rem;
-  color: #64748b;
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-
-.ak-sidebar-foot-version {
-  font-size: 0.6875rem;
-  color: #94a3b8;
-  font-weight: 500;
-}
-
 @media (max-width: 768px) {
   .ak-sidebar {
     width: 60px;
   }
   .ak-brand-text,
   .ak-nav-label,
-  .ak-nav-group-label,
-  .ak-sidebar-foot {
+  .ak-nav-group-label {
     display: none;
   }
   .ak-brand {

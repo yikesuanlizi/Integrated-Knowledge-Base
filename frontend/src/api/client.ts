@@ -33,7 +33,10 @@ import type {
   DocumentListResponse,
   ChunkListResponse,
   EntityListResponse,
+  DocumentDetail,
+  EntityDetail,
   KnowledgeResetResponse,
+  RuntimeConfig,
 } from "@/types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE || "";
@@ -130,6 +133,8 @@ export async function queryKnowledge(request: QueryRequest): Promise<QueryRespon
 
 /** SSE streaming query.
  *  - onToken(token, partial) 每收到一条流式文本片段就回调
+ *  - onNode(node, label) 每开始执行一个节点时回调
+ *  - onTrace(trace, mode) 召回阶段完成、诊断数据就绪时回调
  *  - onDone({ fullAnswer, citations, trace, intent }) 收到 done 事件或连接关闭时回调
  *  - onError(err) 收到 error 事件或连接错误时回调
  * 返回值：调用可主动终止流
@@ -139,6 +144,8 @@ export function streamQuery(
   onToken: (token: string, partial: string) => void,
   onDone: (payload: { fullAnswer: string; citations: Citation[]; trace?: RetrievalTrace; intent?: QueryIntent; sql_result?: SQLResult }) => void,
   onError: (err: Error) => void,
+  onNode?: (node: string, label: string) => void,
+  onTrace?: (trace: RetrievalTrace, mode: string) => void,
 ): () => void {
   const abortCtrl = new AbortController();
   const url = `${BASE_URL}/api/query/stream`;
@@ -206,8 +213,12 @@ export function streamQuery(
               throw new Error(obj.error || "Query failed");
             } else if (eventType === "intent") {
               pendingIntent = obj;
+            } else if (eventType === "node") {
+              onNode?.(obj.node, obj.label);
+            } else if (eventType === "trace") {
+              pendingTrace = obj.trace;
+              if (obj.trace) onTrace?.(obj.trace, obj.mode || "evidence_lookup");
             }
-            // 其他事件（config 等）忽略
           } catch (e) {
             // Non-JSON data; treat as plaintext token
             if (eventType === "answer") {
@@ -457,6 +468,18 @@ export async function listEntities(keyword = "", entityType = "", page = 1, page
   return res.data;
 }
 
+/** 文档详情（含样本 chunks）。 */
+export async function getDocumentDetail(docId: string): Promise<DocumentDetail> {
+  const res = await http.get(`/api/knowledge/documents/${encodeURIComponent(docId)}`);
+  return res.data;
+}
+
+/** 实体详情（含关联 chunks 预览）。 */
+export async function getEntityDetail(entityType: string, value: string): Promise<EntityDetail> {
+  const res = await http.get("/api/knowledge/entities/lookup", { params: { entity_type: entityType, value } });
+  return res.data;
+}
+
 // ============ Monitor ============
 
 /** 查询历史列表。 */
@@ -486,5 +509,12 @@ export async function getMonitorLLMCallDetail(callId: string): Promise<LLMCallDe
 /** 聚合统计。 */
 export async function getMonitorStats(hours = 24): Promise<MonitorStats> {
   const res = await http.get("/api/monitor/stats", { params: { hours } });
+  return res.data;
+}
+
+// ============ Runtime Config ============
+
+export async function getRuntimeConfig(): Promise<RuntimeConfig> {
+  const res = await http.get("/api/config/");
   return res.data;
 }

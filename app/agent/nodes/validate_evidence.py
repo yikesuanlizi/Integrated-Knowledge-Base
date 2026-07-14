@@ -32,9 +32,51 @@ def validate_evidence_node(state: AgentState) -> AgentState:
         "route": route,
     }
     sufficiency = calculate_evidence_sufficiency(state.evidence_pack, evidence_config)
+
+    covered_roles = {role for roles in state.evidence_roles.values() for role in roles if roles}
+    missing_requirements = [req for req, needed in state.answer_requirements.items() if needed and req not in covered_roles]
+    state.missing_requirements = missing_requirements
+
+    state.applicability_conflict = False
+    if state.applicability_filters.get("aircraft_model"):
+        aircraft_models = state.applicability_stats.get("aircraft_models", set())
+        if aircraft_models and len(aircraft_models) > 0:
+            if state.applicability_filters["aircraft_model"] not in aircraft_models:
+                state.applicability_conflict = True
+
+    if missing_requirements or state.applicability_conflict:
+        if state.iteration < state.max_iterations:
+            sufficiency["sufficient"] = False
+            reasons = sufficiency.get("reasons", [])
+            if missing_requirements:
+                reasons.append(f"缺少证据类型: {', '.join(missing_requirements)}")
+            if state.applicability_conflict:
+                reasons.append("证据存在跨机型/版本冲突")
+            sufficiency["reasons"] = reasons
+
     state.evidence_sufficiency = sufficiency
+
+    state.planner_feedback = {
+        "sufficient": sufficiency.get("sufficient", False),
+        "reasons": sufficiency.get("reasons", []),
+        "blocked_by_review": sufficiency.get("blocked_by_review", False),
+        "score": sufficiency.get("score"),
+        "route": route,
+        "iteration": state.iteration,
+        "wiki_count": len(getattr(state, "wiki_results", []) or []),
+        "chunk_count": len(getattr(state, "chunk_results", []) or []),
+        "entity_count": len(getattr(state, "entity_results", []) or []),
+        "structured_count": len(getattr(state, "structured_results", []) or []),
+        "missing_requirements": state.missing_requirements,
+        "applicability_conflict": state.applicability_conflict,
+        "applicability_stats": state.applicability_stats,
+        "applicability_filters": state.applicability_filters,
+    }
+
     if state.retrieval_trace:
         state.retrieval_trace.evidence_sufficiency = sufficiency
+        state.retrieval_trace.missing_requirements = state.missing_requirements
+        state.retrieval_trace.applicability_conflict = state.applicability_conflict
         add_stage(
             state,
             "validate_evidence",
@@ -42,6 +84,9 @@ def validate_evidence_node(state: AgentState) -> AgentState:
             sufficient=sufficiency.get("sufficient", False),
             score=sufficiency.get("score", 0.0),
             blocked_by_review=sufficiency.get("blocked_by_review", False),
+            missing_requirements=state.missing_requirements,
+            applicability_conflict=state.applicability_conflict,
+            covered_roles=sorted(list(covered_roles)),
         )
 
     if sufficiency.get("blocked_by_review"):

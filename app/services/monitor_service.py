@@ -113,11 +113,15 @@ async def save_query_trace(state) -> None:
 
 
 def save_query_trace_fire_and_forget(state) -> None:
-    """同步包装：在后台线程异步执行持久化。"""
+    """在当前运行的 asyncio 事件循环中调度异步持久化任务。"""
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        return
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            logger.warning("save_query_trace_fire_and_forget: no event loop available, skipping persistence")
+            return
     loop.create_task(save_query_trace(state))
 
 
@@ -133,13 +137,29 @@ async def list_queries(page: int = 1, page_size: int = 20) -> dict:
             .limit(page_size)
         )
         rows = result.scalars().all()
+
+        trace_ids = [r.trace_id for r in rows]
+        duration_map: dict[str, int] = {}
+        if trace_ids:
+            from sqlalchemy import and_
+            dur_result = await session.execute(
+                select(
+                    NodeExecution.trace_id,
+                    func.sum(NodeExecution.duration_ms).label("total_ms"),
+                )
+                .where(NodeExecution.trace_id.in_(trace_ids))
+                .group_by(NodeExecution.trace_id)
+            )
+            for tid, total_ms in dur_result.all():
+                duration_map[tid] = int(total_ms or 0)
+
         return {
             "items": [
                 {
                     "trace_id": r.trace_id,
                     "question": r.question[:100] if r.question else "",
                     "answer_summary": (r.answer_summary or "")[:100],
-                    "duration_ms": _calc_duration_ms(r),
+                    "duration_ms": duration_map.get(r.trace_id, 0),
                     "node_count": r.node_count,
                     "llm_call_count": r.llm_call_count,
                     "status": r.status,

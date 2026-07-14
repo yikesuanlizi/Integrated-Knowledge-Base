@@ -140,7 +140,7 @@ class NL2SQLService:
             client = get_milvus_client()
             if not client.has_collection(collection):
                 return []
-            embedding = await embedding_client.aembed_text(question)
+            embedding = embedding_client.embed_text_sync(question)
             results = client.search(
                 collection_name=collection,
                 data=[embedding],

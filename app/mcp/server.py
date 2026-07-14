@@ -1,20 +1,8 @@
-"""Minimal MCP server boundary.
-
-This module intentionally avoids importing a concrete MCP SDK. It exposes the
-tool registry used by future stdio/http MCP adapters.
-"""
+"""MCP server boundary shared by stdio and HTTP adapters."""
 from __future__ import annotations
 
-from app.mcp import tools
-
-
-TOOL_REGISTRY = {
-    "ingest_path": tools.ingest_path,
-    "compile_knowledge": tools.compile_knowledge,
-    "query": tools.query,
-    "status": tools.status,
-}
+from app.mcp.tools import get_tool_registry as _get_tool_registry
 
 
 def get_tool_registry() -> dict:
-    return TOOL_REGISTRY
+    return _get_tool_registry()

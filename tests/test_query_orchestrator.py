@@ -9,11 +9,20 @@ async def test_run_unified_query_is_agent_graph_wrapper(monkeypatch):
 
     captured = {}
 
-    def fake_run_agent_sync(question: str, top_k: int = 8) -> AgentState:
+    def fake_run_agent_sync(
+        question: str,
+        top_k: int = 8,
+        conversation_id: str | None = None,
+        history: list[dict] | None = None,
+    ) -> AgentState:
         captured["question"] = question
         captured["top_k"] = top_k
+        captured["conversation_id"] = conversation_id
+        captured["history"] = history
         return AgentState(
-            question=question,
+            question="液压泵拆卸步骤是什么？",
+            raw_question=question,
+            original_question=question,
             answer="统一图回答",
             citations=[],
             retrieval_trace=RetrievalTrace(
@@ -24,27 +33,42 @@ async def test_run_unified_query_is_agent_graph_wrapper(monkeypatch):
 
     monkeypatch.setattr(orchestrator, "run_agent_sync", fake_run_agent_sync)
 
-    result = await orchestrator.run_unified_query("粗燃油滤清器拆卸步骤是什么", top_k=7)
+    history = [{"role": "user", "content": "液压泵有什么作用？"}]
+    result = await orchestrator.run_unified_query(
+        "它怎么拆？",
+        top_k=7,
+        conversation_id="conv-1",
+        history=history,
+    )
 
-    assert captured == {"question": "粗燃油滤清器拆卸步骤是什么", "top_k": 7}
+    assert captured == {
+        "question": "它怎么拆？",
+        "top_k": 7,
+        "conversation_id": "conv-1",
+        "history": history,
+    }
+    assert result.question == "它怎么拆？"
     assert result.answer == "统一图回答"
     assert result.mode == "evidence_lookup"
     assert result.retrieval_trace.strategy == "agent_graph"
     assert "orchestrator" not in result.retrieval_trace.grounding
 
 
-def test_agent_graph_contains_structured_metadata_recall_node():
+def test_agent_graph_has_new_12_node_structure():
     from app.agent import graph as graph_mod
 
     graph = graph_mod._build_graph().get_graph()
+    edges = {(edge.source, edge.target) for edge in graph.edges}
 
-    assert "recall_structured_metadata" in graph.nodes
-    assert ("recall_entities", "recall_structured_metadata") in {
-        (edge.source, edge.target) for edge in graph.edges
-    }
-    assert ("recall_structured_metadata", "merge_results") in {
-        (edge.source, edge.target) for edge in graph.edges
-    }
+    assert "context_builder" in graph.nodes
+    assert "plan_retrieval" in graph.nodes
+    assert "recall_dispatch" in graph.nodes
+    assert ("__start__", "context_builder") in edges
+    assert ("context_builder", "classify_intent") in edges
+    assert ("extract_query", "plan_retrieval") in edges
+    assert ("plan_retrieval", "recall_dispatch") in edges
+    assert ("recall_dispatch", "merge_results") in edges
+    assert "recall_structured_metadata" not in graph.nodes
 
 
 def test_merge_results_includes_structured_metadata_source():
@@ -109,7 +133,7 @@ def test_structured_metadata_recall_uses_llm_assist_when_keywords_are_weak(monke
     from app.agent.state import AgentState
     from app.nl2sql.schemas import NL2SQLQueryResponse
 
-    async def fake_llm_json(*args, **kwargs):
+    def fake_run_llm_decision(question: str):
         return {
             "use_structured_metadata": True,
             "reason": "问题询问知识库如何判定可回答内容，需要查看审核状态和证据协议。",
@@ -126,7 +150,7 @@ def test_structured_metadata_recall_uses_llm_assist_when_keywords_are_weak(monke
             trace={"steps": [{"node": "llm_assisted_structured_recall"}]},
         )
 
-    monkeypatch.setattr(recall_structured_metadata, "call_llm_json", fake_llm_json)
+    monkeypatch.setattr(recall_structured_metadata, "_run_llm_decision", fake_run_llm_decision)
     monkeypatch.setattr(recall_structured_metadata, "_run_query", fake_run_query)
 
     state = recall_structured_metadata.recall_structured_metadata_node(

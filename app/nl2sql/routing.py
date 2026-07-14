@@ -5,7 +5,7 @@ import re
 from app.nl2sql.schemas import RouteDecision
 
 
-STRUCTURED_METADATA_HINTS = {
+DATA_KEYWORDS = {
     "故障次数",
     "故障数",
     "工单数",
@@ -34,11 +34,9 @@ STRUCTURED_METADATA_HINTS = {
     "组件",
     "系统",
     "ATA",
-    "起落架轮迹",
+    "粗燃油滤清器",
     "液压泵",
-    "道面等级号",
-    "飞机等级号",
-    "登机门",
+    "燃油系统",
     "同比",
     "环比",
     "按月",
@@ -68,36 +66,36 @@ DESTRUCTIVE_HINTS = {"删除", "drop", "truncate", "update", "insert", "清空",
 
 
 def classify_query_route(question: str) -> RouteDecision:
-    """Detect whether structured metadata may help, while keeping /api/query in evidence lookup mode."""
+    """Rules-first auto routing between document RAG and aviation maintenance NL2SQL."""
     normalized = question.strip()
     lower = normalized.lower()
     reasons: list[str] = []
 
     if any(hint in lower for hint in DESTRUCTIVE_HINTS):
         return RouteDecision(
-            route="evidence_lookup",
+            route="data_query",
             confidence=0.9,
-            reasons=["contains database operation wording; keep in evidence lookup and let SQL safety gate reject if used"],
+            reasons=["contains database operation wording; route to NL2SQL safety gate"],
         )
 
-    structured_hits = [kw for kw in STRUCTURED_METADATA_HINTS if kw in normalized or kw.lower() in lower]
+    data_hits = [kw for kw in DATA_KEYWORDS if kw in normalized or kw.lower() in lower]
     knowledge_hits = [kw for kw in KNOWLEDGE_KEYWORDS if kw in normalized or kw.lower() in lower]
 
-    if structured_hits:
-        reasons.append(f"structured metadata hints: {', '.join(structured_hits[:5])}")
+    if data_hits:
+        reasons.append(f"data keywords: {', '.join(data_hits[:5])}")
     if knowledge_hits:
         reasons.append(f"knowledge keywords: {', '.join(knowledge_hits[:5])}")
 
-    if re.search(r"(20\d{2})\s*年", normalized) and structured_hits:
-        reasons.append("contains year plus structured-query wording")
+    if re.search(r"(20\d{2})\s*年", normalized) and data_hits:
+        reasons.append("contains year plus metric/filter wording")
 
-    if structured_hits and not knowledge_hits:
-        return RouteDecision(route="evidence_lookup", confidence=min(0.95, 0.65 + len(structured_hits) * 0.06), reasons=reasons)
+    if data_hits and not knowledge_hits:
+        return RouteDecision(route="data_query", confidence=min(0.95, 0.65 + len(data_hits) * 0.06), reasons=reasons)
 
-    if structured_hits and knowledge_hits:
-        structured_score = len(structured_hits)
+    if data_hits and knowledge_hits:
+        data_score = len(data_hits)
         knowledge_score = len(knowledge_hits)
-        if structured_score >= knowledge_score + 1:
-            return RouteDecision(route="evidence_lookup", confidence=0.72, reasons=reasons)
+        if data_score >= knowledge_score + 1:
+            return RouteDecision(route="data_query", confidence=0.72, reasons=reasons)
 
     return RouteDecision(route="evidence_lookup", confidence=0.75 if knowledge_hits else 0.55, reasons=reasons or ["default to document RAG"])

@@ -37,7 +37,12 @@ class QueryService:
             问答结果 dict。
         """
         try:
-            state = run_agent_sync(question, top_k=top_k)
+            state = run_agent_sync(
+                question,
+                top_k=top_k,
+                conversation_id=None,
+                history=history or [],
+            )
         except Exception as e:
             logger.error(f"Agent run failed: {e}", exc_info=True)
             return {
@@ -56,7 +61,7 @@ class QueryService:
             trace["intent"] = state.intent.model_dump()
 
         return {
-            "question": state.question,
+            "question": question,
             "answer": state.answer or "",
             "needs_clarification": state.needs_clarification,
             "clarification_questions": state.clarification_questions,
@@ -88,7 +93,7 @@ class QueryService:
             yield f"event: config\ndata: {json.dumps(config, ensure_ascii=False)}\n\n"
 
             loop = asyncio.get_running_loop()
-            state = await loop.run_in_executor(None, run_agent_sync, question, top_k)
+            state = await loop.run_in_executor(None, run_agent_sync, question, top_k, None, [])
 
             answer = state.answer or ""
             chunks = re.split(r"(\n\n+)", answer)

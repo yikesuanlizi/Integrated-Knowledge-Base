@@ -24,9 +24,56 @@ def _gitee_headers(api_key: str) -> Dict[str, str]:
 
 class LLMClient:
     def __init__(self):
-        self._client = httpx.AsyncClient(base_url=config.llm_api_base, timeout=300)
+        self._base_url = config.llm_api_base
         self._api_key = config.llm_api_key
         self._model_name = config.llm_model_name
+        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=300)
+
+    def generate_sync(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        scene: str = "unknown",
+    ) -> str:
+        headers = _json_headers(self._api_key)
+        payload = {
+            "model": model or self._model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
+        user_prompt = next((m["content"] for m in messages if m.get("role") == "user"), "")
+        trace_id = current_trace_id.get()
+        t0 = time.perf_counter()
+        try:
+            with httpx.Client(base_url=self._base_url, timeout=300) as client:
+                response = client.post("/chat/completions", headers=headers, json=payload)
+                response.raise_for_status()
+                resp_json = response.json()
+                completion = resp_json["choices"][0]["message"]["content"]
+                usage = resp_json.get("usage", {})
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            record_llm_call(
+                trace_id=trace_id, scene=scene,
+                system_prompt=system_prompt, user_prompt=user_prompt,
+                completion=completion, model_name=model or self._model_name,
+                duration_ms=duration_ms, status="success",
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+            )
+            return completion
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            record_llm_call(
+                trace_id=trace_id, scene=scene,
+                system_prompt=system_prompt, user_prompt=user_prompt,
+                completion="", model_name=model or self._model_name,
+                duration_ms=duration_ms, status="error", error=str(e)[:500],
+            )
+            raise
 
     async def generate(
         self,
@@ -109,9 +156,36 @@ class LLMClient:
 class EmbeddingClient:
     def __init__(self):
         self._base_url = config.embedding_api_base
-        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=120) if self._base_url else None
         self._api_key = config.embedding_api_key
         self._model_name = config.embedding_model_name
+        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=120) if self._base_url else None
+
+    def embed_sync(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        if not self._base_url or not self._model_name:
+            raise RuntimeError(
+                "Gitee embedding is not configured. Set GITEE_API_KEY in the system "
+                "environment; model configuration is managed by app_config.py."
+            )
+        truncated = [t[:8000] for t in texts]
+        headers = _gitee_headers(self._api_key)
+        payload = {
+            "model": self._model_name,
+            "input": truncated,
+            "dimensions": config.embedding_dimensions,
+            "extra_body": {
+                "instruction": config.embedding_instruction,
+            },
+        }
+        with httpx.Client(base_url=self._base_url, timeout=120) as client:
+            response = client.post("/embeddings", headers=headers, json=payload)
+            response.raise_for_status()
+            return [item["embedding"] for item in response.json()["data"]]
+
+    def embed_text_sync(self, text: str) -> List[float]:
+        results = self.embed_sync([text])
+        return results[0] if results else [0.0] * config.embedding_dimensions
 
     async def embed(self, texts: List[str]) -> List[List[float]]:
         """批量 embed。"""
@@ -122,7 +196,6 @@ class EmbeddingClient:
                 "Gitee embedding is not configured. Set GITEE_API_KEY in the system "
                 "environment; model configuration is managed by app_config.py."
             )
-        # 截断过长文本，避免超出 token 限制
         truncated = [t[:8000] for t in texts]
         headers = _gitee_headers(self._api_key)
         payload = {
@@ -143,15 +216,8 @@ class EmbeddingClient:
         return results[0] if results else [0.0] * config.embedding_dimensions
 
     def embed_text(self, text: str) -> List[float]:
-        """单文本 embed（sync 包装）。"""
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.aembed_text(text))
-        raise RuntimeError(
-            "Cannot use sync embed_text in async context. Use aembed_text instead."
-        )
+        """单文本 embed（sync）。"""
+        return self.embed_text_sync(text)
 
     async def close(self):
         if self._client:

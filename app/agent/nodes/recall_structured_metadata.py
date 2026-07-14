@@ -1,11 +1,10 @@
 """Recall structured knowledge-base metadata as one evidence lane."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from app.agent.state import AgentState
-from app.compiler.llm_utils import call_llm_json
+from app.compiler.llm_utils import call_llm_json_sync
 from app.core.log import logger
 from app.nl2sql.service import NL2SQLService
 
@@ -152,41 +151,27 @@ def _llm_structured_metadata_decision(question: str) -> dict[str, Any]:
 
 def _run_llm_decision(question: str):
     try:
-        return asyncio.run(
-            call_llm_json(
-                STRUCTURED_DECISION_SYSTEM,
-                f"用户问题：{question}",
-                temperature=0.0,
-                max_tokens=300,
-                max_retries=1,
-            )
+        return call_llm_json_sync(
+            STRUCTURED_DECISION_SYSTEM,
+            f"用户问题：{question}",
+            temperature=0.0,
+            max_tokens=300,
+            max_retries=1,
         )
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(
-                call_llm_json(
-                    STRUCTURED_DECISION_SYSTEM,
-                    f"用户问题：{question}",
-                    temperature=0.0,
-                    max_tokens=300,
-                    max_retries=1,
-                )
-            )
-        finally:
-            loop.close()
+    except Exception as exc:
+        logger.debug(f"Structured metadata LLM decision failed: {exc}")
+        return None
 
 
 def _run_query(question: str, limit: int):
     service = NL2SQLService()
+    import asyncio
+    loop = asyncio.new_event_loop()
     try:
-        return asyncio.run(service.query(question, limit=limit))
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(service.query(question, limit=limit))
-        finally:
-            loop.close()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(service.query(question, limit=limit))
+    finally:
+        loop.close()
 
 
 def _rows_to_evidence(rows: list[dict[str, Any]], sql: str) -> list[dict[str, Any]]:

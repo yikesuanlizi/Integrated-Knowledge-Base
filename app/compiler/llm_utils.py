@@ -43,6 +43,39 @@ async def call_llm_json(
     raise RuntimeError(f"LLM call failed after {max_retries + 1} attempts: {last_error}")
 
 
+def call_llm_json_sync(
+    system: str,
+    user: str,
+    *,
+    model: Optional[str] = None,
+    temperature: float = 0.2,
+    max_tokens: int = 4096,
+    max_retries: int = 2,
+    scene: str = "compile",
+) -> Any:
+    """同步版本：调用 LLM 并解析 JSON 输出。"""
+    last_error: Optional[Exception] = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            content = llm_client.generate_sync(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                scene=scene,
+            )
+            return _parse_json(content)
+        except Exception as e:
+            last_error = e
+            logger.warning(f"LLM sync call attempt {attempt + 1} failed: {e}")
+
+    raise RuntimeError(f"LLM sync call failed after {max_retries + 1} attempts: {last_error}")
+
+
 def _parse_json(content: str) -> Any:
     """从 LLM 输出中提取并解析 JSON。"""
     if not content:

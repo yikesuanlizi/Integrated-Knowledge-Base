@@ -134,18 +134,9 @@ class QueryFeatures:
 
 
 def build_query_vector(query: str) -> List[float]:
-    """同步接口：使用线程池运行 async embed。"""
-    import asyncio
+    """同步接口：使用同步 embedding 客户端。"""
     from app.clients.llm_client import embedding_client
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError as e:
-        return asyncio.run(embedding_client.aembed_text(query))
-
-    raise RuntimeError(
-        "build_query_vector called in async context. Use build_query_vector_async instead."
-    )
+    return embedding_client.embed_text_sync(query)
 
 
 async def build_query_vector_async(query: str) -> List[float]:

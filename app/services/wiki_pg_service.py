@@ -224,6 +224,16 @@ async def persist_wiki_cards_to_pg(cards: list[CompiledWikiCard], build_id: str)
             metadata = card.metadata or {}
             status = _value(card.status)
 
+            doc_info = await session.execute(
+                text("SELECT aircraft_model, manual_type, ata_chapter FROM documents WHERE doc_id = :doc_id"),
+                {"doc_id": doc_id}
+            )
+            doc_row = doc_info.mappings().first() or {}
+            
+            aircraft_model = metadata.get("aircraft_model") or doc_row.get("aircraft_model")
+            manual_type = metadata.get("manual_type") or doc_row.get("manual_type")
+            ata_chapter = metadata.get("ata_chapter") or doc_row.get("ata_chapter")
+
             card_stmt = insert(WikiCard).values(
                 card_id=card.card_id,
                 build_id=build_id,
@@ -233,6 +243,9 @@ async def persist_wiki_cards_to_pg(cards: list[CompiledWikiCard], build_id: str)
                 text=card.content,
                 source_ref=card.source_ref,
                 confidence=card.confidence,
+                aircraft_model=aircraft_model,
+                manual_type=manual_type,
+                ata_chapter=ata_chapter,
                 facts_json=facts,
                 linked_entities_json=metadata.get("linked_entities", []),
                 status=status,
@@ -245,6 +258,9 @@ async def persist_wiki_cards_to_pg(cards: list[CompiledWikiCard], build_id: str)
                     "text": card.content,
                     "source_ref": card.source_ref,
                     "confidence": card.confidence,
+                    "aircraft_model": aircraft_model,
+                    "manual_type": manual_type,
+                    "ata_chapter": ata_chapter,
                     "facts_json": facts,
                     "linked_entities_json": metadata.get("linked_entities", []),
                     "status": status,
@@ -325,6 +341,13 @@ async def persist_wiki_cards_to_pg(cards: list[CompiledWikiCard], build_id: str)
 
 
 def _row_to_card_dict(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = {}
+    if row.get("aircraft_model"):
+        metadata["aircraft_model"] = row.get("aircraft_model")
+    if row.get("manual_type"):
+        metadata["manual_type"] = row.get("manual_type")
+    if row.get("ata_chapter"):
+        metadata["ata_chapter"] = row.get("ata_chapter")
     return {
         "card_id": row.get("card_id") or "",
         "build_id": row.get("build_id") or "",
@@ -335,9 +358,12 @@ def _row_to_card_dict(row: dict[str, Any]) -> dict[str, Any]:
         "source_ref": row.get("source_ref") or "",
         "confidence": float(row.get("confidence") or 0),
         "status": row.get("status") or "",
+        "aircraft_model": row.get("aircraft_model") or "",
+        "manual_type": row.get("manual_type") or "",
+        "ata_chapter": row.get("ata_chapter") or "",
         "facts": row.get("facts_json") or [],
         "linked_chunks": row.get("linked_chunks") or [],
-        "metadata": {},
+        "metadata": metadata,
         "created_at": row.get("created_at") or "",
         "score": float(row.get("score") or 1.0),
     }
@@ -349,6 +375,9 @@ async def list_pg_wiki_cards(
     card_type: str | None = None,
     status: str | None = None,
     keyword: str = "",
+    aircraft_model: str | None = None,
+    manual_type: str | None = None,
+    ata_chapter: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     await init_database()
     offset = max(0, (page - 1) * page_size)
@@ -361,8 +390,17 @@ async def list_pg_wiki_cards(
         where.append("wc.status = :status")
         params["status"] = status
     if keyword:
-        where.append("(wc.title ILIKE :keyword OR wc.text ILIKE :keyword OR wc.card_type ILIKE :keyword)")
+        where.append("(wc.title ILIKE :keyword OR wc.text ILIKE :keyword OR wc.card_type ILIKE :keyword OR wc.source_ref ILIKE :keyword)")
         params["keyword"] = f"%{keyword}%"
+    if aircraft_model:
+        where.append("wc.aircraft_model ILIKE :aircraft_model")
+        params["aircraft_model"] = f"%{aircraft_model}%"
+    if manual_type:
+        where.append("wc.manual_type ILIKE :manual_type")
+        params["manual_type"] = f"%{manual_type}%"
+    if ata_chapter:
+        where.append("wc.ata_chapter ILIKE :ata_chapter")
+        params["ata_chapter"] = f"%{ata_chapter}%"
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     count_sql = text(f"SELECT COUNT(*) FROM wiki_cards wc {where_sql}")

@@ -32,8 +32,57 @@ async def status() -> dict:
 
 def list_tools() -> list[dict]:
     return [
-        {"name": "ingest_path", "description": "Ingest a local directory of documents."},
-        {"name": "compile_knowledge", "description": "Compile ingested chunks into Wiki cards."},
-        {"name": "query", "description": "Run unified RAG/NL2SQL question answering."},
-        {"name": "status", "description": "Return ingestion/index status."},
+        {
+            "name": name,
+            "description": spec["description"],
+            "input_schema": spec["input_schema"],
+        }
+        for name, spec in get_tool_registry().items()
     ]
+
+
+def get_tool_registry() -> dict[str, dict]:
+    return {
+        "ingest_path": {
+            "description": "Ingest a local directory of documents.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Local directory path to ingest."},
+                    "force": {"type": "boolean", "description": "Re-ingest even if documents already exist.", "default": False},
+                },
+                "required": ["path"],
+            },
+            "handler": ingest_path,
+        },
+        "compile_knowledge": {
+            "description": "Compile ingested chunks into Wiki cards.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "build_id": {"type": "string", "description": "Optional build id. Uses latest build when omitted."},
+                },
+            },
+            "handler": compile_knowledge,
+        },
+        "query": {
+            "description": "Run unified RAG/NL2SQL question answering.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "User question."},
+                    "top_k": {"type": "integer", "description": "Retrieval candidate count.", "default": 8},
+                },
+                "required": ["question"],
+            },
+            "handler": query,
+        },
+        "status": {
+            "description": "Return ingestion/index status.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+            },
+            "handler": status,
+        },
+    }

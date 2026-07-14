@@ -6,15 +6,18 @@ def test_recall_wiki_filters_to_approved_cards(monkeypatch):
 
     captured = {}
 
-    async def fake_list_cards(page: int, page_size: int, card_type=None, status=None, keyword: str = ""):
+    async def fake_list_cards(page: int, page_size: int, card_type=None, status=None, keyword: str = "", **kwargs):
         captured["status"] = status
         return [], 0
 
     monkeypatch.setattr(recall_wiki, "list_pg_wiki_cards", fake_list_cards)
 
-    recall_wiki.recall_wiki_node(AgentState(question="燃油系统拆卸步骤"))
+    result = recall_wiki.recall_wiki_node(AgentState(question="燃油系统拆卸步骤"))
 
     assert captured["status"] == "approved"
+    assert "wiki_results" in result
+    assert "chunk_results" in result
+    assert "wiki_metadata" in result
 
 
 def test_recall_wiki_strips_concept_suffixes():
@@ -33,7 +36,7 @@ def test_recall_wiki_falls_back_to_chunks_when_wiki_misses(monkeypatch):
         def search(self, embedding, top_k=8, filters=None):
             return [{"chunk_id": "chunk-1", "content": "命中的原文切片", "status": "approved", "score": 0.9}]
 
-    async def fake_list_cards(page: int, page_size: int, card_type=None, status=None, keyword: str = ""):
+    async def fake_list_cards(page: int, page_size: int, card_type=None, status=None, keyword: str = "", **kwargs):
         return [], 0
 
     monkeypatch.setattr(recall_wiki, "list_pg_wiki_cards", fake_list_cards)
@@ -45,6 +48,7 @@ def test_recall_wiki_falls_back_to_chunks_when_wiki_misses(monkeypatch):
     assert result["wiki_results"] == []
     assert len(result["chunk_results"]) == 1
     assert result["chunk_results"][0]["chunk_id"] == "chunk-1"
+    assert "wiki_metadata" in result
 
 
 def test_recall_chunks_filters_to_approved_chunks(monkeypatch):

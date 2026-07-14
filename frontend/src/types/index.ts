@@ -400,6 +400,30 @@ export interface EntityListResponse {
   page_size: number;
 }
 
+// 悬浮预览用
+export interface ChunkPreview {
+  chunk_id: string;
+  content: string;
+  source_file: string;
+  section_path: string;
+  block_type: string;
+  page_numbers: number[] | null;
+  status: string;
+}
+
+export interface DocumentDetail extends DocumentItem {
+  build_id: string;
+  file_ext: string;
+  has_raw: boolean;
+  sample_chunks: ChunkPreview[];
+}
+
+export interface EntityDetail extends EntityItem {
+  doc_ids: string[];
+  source_files: string[];
+  sample_chunks: ChunkPreview[];
+}
+
 // ============ Monitor ============
 
 export interface QueryTraceListItem {
@@ -483,4 +507,51 @@ export interface MonitorStats {
   total_output_tokens: number;
   total_tokens: number;
   node_stats: MonitorNodeStat[];
+}
+
+// ============ Runtime Config ============
+
+export interface MinioRuntimeConfig {
+  endpoint: string;
+  access_key: string;
+  secret_key_configured: boolean;
+  bucket: string;
+}
+
+export interface StorageRuntimeConfig {
+  postgres_host: string;
+  postgres_port: number;
+  postgres_db: string;
+  postgres_user: string;
+  milvus_host: string;
+  milvus_port: number;
+  milvus_collection: string;
+  es_host: string;
+  es_port: number;
+  minio: MinioRuntimeConfig;
+}
+
+export interface ModelRuntimeConfig {
+  name: string;
+  api_base: string;
+  api_key_configured: boolean;
+}
+
+export interface EmbeddingRuntimeConfig extends ModelRuntimeConfig {
+  dimensions: number;
+  instruction: string;
+}
+
+export interface RerankerRuntimeConfig extends ModelRuntimeConfig {
+  instruction: string;
+}
+
+export interface RuntimeConfig {
+  app_env: string;
+  storage: StorageRuntimeConfig;
+  llm: ModelRuntimeConfig;
+  embedding: EmbeddingRuntimeConfig;
+  reranker: RerankerRuntimeConfig;
+  ocr: ModelRuntimeConfig;
+  vl: ModelRuntimeConfig;
 }

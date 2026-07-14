@@ -7,6 +7,8 @@ from app.retrieval.intent import classify_intent, get_intent_config
 
 
 def classify_intent_node(state: AgentState) -> AgentState:
+    if not state.original_question:
+        state.original_question = state.question
     intent = classify_intent(state.question)
     state.intent = intent
     intent_config = get_intent_config(intent)

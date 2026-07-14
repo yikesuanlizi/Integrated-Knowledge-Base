@@ -46,59 +46,77 @@ def _external_rerank_documents(query: str, documents: List[dict]) -> List[dict]:
     if not api_key:
         raise RuntimeError("Rerank API key is not configured")
 
-    payload = {
-        "query": query,
-        "documents": [
-            doc.get("content", "") or doc.get("text", "") or doc.get("title", "") or doc.get("value", "")
-            for doc in documents
-        ],
-        "model": config.rerank_model_name,
-        "instruction": config.rerank_instruction,
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "X-Failover-Enabled": "true",
-    }
+    batch_size = 24
+    all_ranked: list[dict] = []
+    total = len(documents)
+    any_batch_failed = False
 
-    client = _external_rerank_client()
-    response = client.post(f"{config.rerank_api_base}/rerank", headers=headers, json=payload, timeout=60)
-    response.raise_for_status()
-    body = response.json()
+    for batch_start in range(0, total, batch_size):
+        batch_docs = documents[batch_start:batch_start + batch_size]
+        payload = {
+            "query": query,
+            "documents": [
+                doc.get("content", "") or doc.get("text", "") or doc.get("title", "") or doc.get("value", "")
+                for doc in batch_docs
+            ],
+            "model": config.rerank_model_name,
+            "instruction": config.rerank_instruction,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "X-Failover-Enabled": "true",
+        }
 
-    items = body.get("results") if isinstance(body, dict) else None
-    if items is None and isinstance(body, dict):
-        items = body.get("data")
-    if items is None and isinstance(body, list):
-        items = body
-    if not isinstance(items, list):
-        raise RuntimeError("Unexpected rerank response shape")
-
-    ranked: list[dict] = []
-    for position, item in enumerate(items):
-        if not isinstance(item, dict):
-            continue
-        index = item.get("index", item.get("document_index", item.get("documentIndex")))
-        if index is None and position < len(documents):
-            index = position
+        client = _external_rerank_client()
         try:
-            index = int(index)
-        except (TypeError, ValueError):
+            response = client.post(f"{config.rerank_api_base}/rerank", headers=headers, json=payload, timeout=120)
+            response.raise_for_status()
+            body = response.json()
+        except Exception as e:
+            logger.warning(f"External rerank batch failed (docs {batch_start}-{batch_start+len(batch_docs)}): {e}")
+            any_batch_failed = True
             continue
-        score = item.get("relevance_score", item.get("score", item.get("rerank_score", 0.0)))
-        try:
-            score = float(score)
-        except (TypeError, ValueError):
-            score = float(len(items) - position)
-        if 0 <= index < len(documents):
-            doc = documents[index].copy()
-            doc["external_rerank_score"] = score
-            doc["external_rerank_rank"] = position + 1
-            ranked.append(doc)
 
-    if not ranked:
-        raise RuntimeError("No rerank results returned")
-    return ranked
+        items = body.get("results") if isinstance(body, dict) else None
+        if items is None and isinstance(body, dict):
+            items = body.get("data")
+        if items is None and isinstance(body, list):
+            items = body
+        if not isinstance(items, list):
+            logger.warning(f"Unexpected rerank response shape: {type(body)}")
+            any_batch_failed = True
+            continue
+
+        for position, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            local_index = item.get("index", item.get("document_index", item.get("documentIndex")))
+            if local_index is None and position < len(batch_docs):
+                local_index = position
+            try:
+                local_index = int(local_index)
+            except (TypeError, ValueError):
+                continue
+            global_index = batch_start + local_index
+            score = item.get("relevance_score", item.get("score", item.get("rerank_score", 0.0)))
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = float(len(items) - position)
+            if 0 <= global_index < total:
+                doc = documents[global_index].copy()
+                doc["external_rerank_score"] = score
+                all_ranked.append(doc)
+
+    if not all_ranked:
+        raise RuntimeError("Rerank API returned no valid results")
+    all_ranked.sort(key=lambda d: d.get("external_rerank_score", 0.0), reverse=True)
+    for i, doc in enumerate(all_ranked):
+        doc["external_rerank_rank"] = i + 1
+    if any_batch_failed:
+        logger.warning(f"External rerank partial failure: {len(all_ranked)}/{total} docs ranked successfully")
+    return all_ranked
 
 
 def bm25_score(
@@ -258,8 +276,9 @@ def hybrid_rerank(
     try:
         if len(documents) > 1:
             external_ranked = _external_rerank_documents(query, documents)
+            logger.info(f"External rerank succeeded for {len(documents)} docs, got {len(external_ranked)} results")
     except Exception as exc:
-        logger.debug(f"External rerank unavailable, falling back to local mix: {exc}")
+        logger.warning(f"External rerank unavailable, falling back to local mix: {exc}")
 
     corpus = [doc.get("content", "") or doc.get("text", "") for doc in documents]
 

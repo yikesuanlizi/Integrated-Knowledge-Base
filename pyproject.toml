@@ -6,6 +6,9 @@ authors = ["Developer <developer@example.com>"]
 license = "MIT"
 packages = [{ include = "app" }]
 
+[tool.poetry.scripts]
+rag-mcp-server = "app.mcp.stdio_server:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11"
 fastapi = "*"

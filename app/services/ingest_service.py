@@ -520,6 +520,12 @@ class IngestService:
                 "section_path": chunk.metadata.section_path or "",
                 "block_type": chunk.metadata.block_type or "",
                 "page_numbers": chunk.metadata.page_numbers or [],
+                "manual_type": metadata.manual_type or "",
+                "ata_chapter": metadata.ata_chapter or "",
+                "aircraft_model": metadata.aircraft_model or "",
+                "manual_revision": metadata.manual_revision or "",
+                "effective_date": metadata.effective_date or "",
+                "applicability": metadata.applicability or "",
                 "status": chunk_reviews.get(chunk.chunk_id, {}).get("status", "approved"),
             })
 
@@ -541,6 +547,9 @@ class IngestService:
                 "manual_type": metadata.manual_type or "",
                 "ata_chapter": metadata.ata_chapter or "",
                 "aircraft_model": metadata.aircraft_model or "",
+                "manual_revision": metadata.manual_revision or "",
+                "effective_date": metadata.effective_date or "",
+                "applicability": metadata.applicability or "",
                 "status": chunk_reviews.get(chunk.chunk_id, {}).get("status", "approved"),
             }
             es_chunks.append(es_chunk)

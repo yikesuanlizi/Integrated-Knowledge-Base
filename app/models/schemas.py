@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ class QueryRequest(BaseModel):
     strict: bool = True
     build_id: Optional[str] = None
     filters: DocumentMetadata = Field(default_factory=DocumentMetadata)
+    conversation_id: Optional[str] = None
     history: List["ConversationTurn"] = Field(default_factory=list, max_length=12)
 
 
@@ -95,6 +96,14 @@ class RetrievalTrace(BaseModel):
     merged_count: int = 0
     reranked_count: int = 0
     selected_evidence: List[dict] = Field(default_factory=list)
+    history_prompt_enforced: bool = True
+    answer_requirements: dict = Field(default_factory=dict)
+    applicability_filters: dict = Field(default_factory=dict)
+    evidence_roles: dict = Field(default_factory=dict)
+    applicability_stats: dict = Field(default_factory=dict)
+    applicability_conflict: bool = False
+    missing_requirements: List[str] = Field(default_factory=list)
+    applicability_summary: str = ""
 
 
 class QueryResponse(BaseModel):

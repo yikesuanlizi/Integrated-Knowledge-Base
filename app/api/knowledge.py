@@ -5,8 +5,10 @@ import json
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.clients.es_client import es_client_manager
@@ -121,6 +123,50 @@ class DocumentListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ChunkPreview(BaseModel):
+    chunk_id: str
+    content: str
+    source_file: str = ""
+    section_path: str = ""
+    block_type: str = ""
+    page_numbers: list[int] | None = None
+    status: str = ""
+
+
+class DocumentDetail(BaseModel):
+    doc_id: str
+    build_id: str = ""
+    file_name: str
+    source_path: str
+    file_ext: str = ""
+    has_raw: bool = False
+    manual_type: str = ""
+    aircraft_model: str = ""
+    engine_model: str = ""
+    ata_chapter: str = ""
+    manual_revision: str = ""
+    effective_date: str = ""
+    applicability: str = ""
+    language: str = ""
+    confidentiality: str = ""
+    parser_name: str = ""
+    parser_version: str = ""
+    created_at: str = ""
+    chunk_count: int = 0
+    card_count: int = 0
+    sample_chunks: list[ChunkPreview] = []
+
+
+class EntityDetail(BaseModel):
+    entity_type: str
+    value: str
+    chunk_ids: list[str] = []
+    doc_ids: list[str] = []
+    source_files: list[str] = []
+    count: int = 0
+    sample_chunks: list[ChunkPreview] = []
 
 
 class IndexStatus(BaseModel):
@@ -693,3 +739,221 @@ async def get_index_status():
         status.nl2sql = {"ok": False, "error": str(e)}
 
     return status
+
+
+def _hit_to_chunk_preview(h: dict) -> ChunkPreview:
+    return ChunkPreview(
+        chunk_id=h.get("chunk_id") or "",
+        content=h.get("content") or h.get("raw_content") or "",
+        source_file=h.get("source_file") or "",
+        section_path=h.get("section_path") or "",
+        block_type=h.get("block_type") or "",
+        page_numbers=h.get("page_numbers"),
+        status=h.get("status") or "",
+    )
+
+
+@router.get("/documents/{doc_id:path}/raw")
+async def get_document_raw(doc_id: str, download: bool = Query(False, description="true=下载附件; false=内嵌预览")):
+    """从 MinIO 代理原文件，支持浏览器内嵌预览（PDF/图片/文本）。"""
+    doc_meta: dict[str, Any] = {}
+    try:
+        from sqlalchemy import text as _text
+        async with AsyncSessionLocal() as session:
+            if await _table_exists_raw("documents"):
+                result = await session.execute(
+                    _text("SELECT file_name, build_id FROM documents WHERE doc_id = :doc_id LIMIT 1"),
+                    {"doc_id": doc_id},
+                )
+                row = result.first()
+                if row:
+                    doc_meta = dict(row._mapping)
+    except Exception as e:
+        logger.debug(f"Load document meta for raw failed {doc_id}: {e}")
+
+    file_name = doc_meta.get("file_name") or ""
+    build_id = (doc_meta.get("build_id") or doc_id.split(":", 1)[0] or "").strip()
+    if not file_name or not build_id:
+        raise HTTPException(status_code=404, detail="文档元数据缺失，无法定位原文件")
+
+    object_name = f"sources/{build_id}/{file_name}"
+    ext = Path(file_name).suffix.lower().lstrip(".")
+    try:
+        minio_client_manager.init()
+        stat = minio_client_manager.client.stat_object(minio_client_manager._bucket_name, object_name)
+    except Exception as e:
+        logger.warning(f"MinIO stat_object failed {object_name}: {e}")
+        raise HTTPException(status_code=404, detail=f"原文件在存储中不存在: {object_name}")
+
+    media_map = {
+        "pdf": "application/pdf",
+        "md": "text/markdown; charset=utf-8",
+        "markdown": "text/markdown; charset=utf-8",
+        "txt": "text/plain; charset=utf-8",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "html": "text/html; charset=utf-8",
+        "htm": "text/html; charset=utf-8",
+        "json": "application/json; charset=utf-8",
+        "xml": "application/xml; charset=utf-8",
+        "csv": "text/csv; charset=utf-8",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xls": "application/vnd.ms-excel",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }
+    content_type = media_map.get(ext, "application/octet-stream")
+
+    def _stream():
+        resp = minio_client_manager.get_object(object_name)
+        try:
+            for chunk in resp.stream(64 * 1024):
+                yield chunk
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    disposition = "attachment" if download else "inline"
+    encoded = quote(file_name)
+    headers = {
+        "Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded}",
+        "Content-Length": str(stat.size or 0),
+        "Cache-Control": "private, max-age=600",
+    }
+
+    return StreamingResponse(_stream(), media_type=content_type, headers=headers)
+
+
+@router.get("/documents/{doc_id:path}", response_model=DocumentDetail)
+async def get_document_detail(doc_id: str):
+    """文档详情：元数据 + 前若干 chunk 预览。"""
+    doc_meta: dict[str, Any] = {}
+    try:
+        from sqlalchemy import text
+        from app.core.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            if await _table_exists_raw("documents"):
+                result = await session.execute(
+                    text("SELECT * FROM documents WHERE doc_id = :doc_id LIMIT 1"),
+                    {"doc_id": doc_id},
+                )
+                row = result.first()
+                if row:
+                    doc_meta = dict(row._mapping)
+    except Exception as e:
+        logger.debug(f"Load document meta failed for {doc_id}: {e}")
+
+    sample_chunks: list[ChunkPreview] = []
+    chunk_count = 0
+    try:
+        es_repo = ElasticsearchRepository()
+        chunks = await es_repo.search(
+            query="",
+            top_k=5,
+            filters={"doc_id": doc_id},
+        )
+        sample_chunks = [_hit_to_chunk_preview(h) for h in chunks[:5]]
+        total_resp = await es_repo.client.count(
+            index=es_repo.index_name,
+            body={"query": {"term": {"doc_id": doc_id}}},
+        )
+        chunk_count = int(total_resp.get("count", len(sample_chunks)))
+    except Exception as e:
+        logger.debug(f"Load document chunks failed for {doc_id}: {e}")
+
+    card_count = 0
+    try:
+        from sqlalchemy import text
+        from app.core.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            if await _table_exists_raw("wiki_cards"):
+                r = await session.execute(
+                    text("SELECT COUNT(*) FROM wiki_cards WHERE doc_id = :doc_id"),
+                    {"doc_id": doc_id},
+                )
+                card_count = r.scalar() or 0
+    except Exception:
+        pass
+
+    file_name = doc_meta.get("file_name") or doc_id
+    source_path = doc_meta.get("source_path") or doc_id
+    build_id = (doc_meta.get("build_id") or doc_id.split(":", 1)[0] or doc_id).strip()
+    file_ext = Path(file_name).suffix.lower().lstrip(".")
+
+    has_raw = False
+    object_name = f"sources/{build_id}/{file_name}"
+    try:
+        minio_client_manager.init()
+        has_raw = minio_client_manager.client.stat_object(
+            minio_client_manager._bucket_name, object_name
+        ) is not None
+    except Exception:
+        has_raw = False
+
+    return DocumentDetail(
+        doc_id=doc_id,
+        build_id=build_id,
+        file_name=file_name,
+        source_path=source_path,
+        file_ext=file_ext,
+        has_raw=has_raw,
+        manual_type=doc_meta.get("manual_type") or "",
+        aircraft_model=doc_meta.get("aircraft_model") or "",
+        engine_model=doc_meta.get("engine_model") or "",
+        ata_chapter=doc_meta.get("ata_chapter") or "",
+        manual_revision=doc_meta.get("manual_revision") or "",
+        effective_date=doc_meta.get("effective_date") or "",
+        applicability=doc_meta.get("applicability") or "",
+        language=doc_meta.get("language") or "",
+        confidentiality=doc_meta.get("confidentiality") or "",
+        parser_name=doc_meta.get("parser_name") or "",
+        parser_version=doc_meta.get("parser_version") or "",
+        created_at=str(doc_meta.get("created_at") or ""),
+        chunk_count=chunk_count or doc_meta.get("chunk_count", 0),
+        card_count=card_count or doc_meta.get("card_count", 0),
+        sample_chunks=sample_chunks,
+    )
+
+
+@router.get("/entities/lookup", response_model=EntityDetail)
+async def get_entity_detail(
+    entity_type: str = Query(..., description="实体类型"),
+    value: str = Query(..., description="实体值"),
+):
+    """实体详情：基本信息 + 关联 chunk 内容预览。"""
+    entity_data: dict[str, Any] = {}
+    try:
+        entity_repo = EntityESRepository()
+        await entity_repo.create_index()
+        got = await entity_repo.get_entity(entity_type, value)
+        if got:
+            entity_data = got
+    except Exception as e:
+        logger.debug(f"Load entity failed for {entity_type}:{value}: {e}")
+
+    sample_chunks: list[ChunkPreview] = []
+    try:
+        es_repo = ElasticsearchRepository()
+        chunks = await es_repo.search_entities(
+            entity_value=value,
+            entity_type=entity_type,
+            top_k=5,
+        )
+        sample_chunks = [_hit_to_chunk_preview(h) for h in chunks[:5]]
+    except Exception as e:
+        logger.debug(f"Load entity chunks failed for {entity_type}:{value}: {e}")
+
+    return EntityDetail(
+        entity_type=entity_type,
+        value=value,
+        chunk_ids=entity_data.get("chunk_ids", []) or [],
+        doc_ids=entity_data.get("doc_ids", []) or [],
+        source_files=entity_data.get("source_files", []) or [],
+        count=int(entity_data.get("count", len(sample_chunks)) or 0),
+        sample_chunks=sample_chunks,
+    )

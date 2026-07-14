@@ -74,6 +74,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/MonitorView.vue"),
     meta: { title: "运行监控" },
   },
+  {
+    path: "/config",
+    name: "runtime-config",
+    component: () => import("@/views/RuntimeConfigView.vue"),
+    meta: { title: "运行配置" },
+  },
 ];
 
 export const router = createRouter({

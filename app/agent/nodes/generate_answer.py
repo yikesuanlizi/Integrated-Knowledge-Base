@@ -10,60 +10,113 @@ from app.core.log import logger
 from app.retrieval.context_build import build_context_for_llm
 
 
-def generate_answer_node(state: AgentState) -> AgentState:
-    return _run(state)
+def build_answer_messages(state: AgentState) -> tuple[list[dict], str | None]:
+    """构建 LLM 答案生成的 messages 列表。
 
-
-async def generate_answer_node_async(state: AgentState) -> AgentState:
-    return await _run_async(state)
-
-
-def _run(state: AgentState) -> AgentState:
-    """同步包装：使用 asyncio.run。"""
-    import asyncio
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(_run_async(state))
-    logger.warning("Async generation skipped inside running event loop; using extractive fallback answer.")
-    state.answer = _fallback_answer(state)
-    return state
-
-
-async def _run_async(state: AgentState) -> AgentState:
+    返回 (messages, early_exit_answer):
+    - 如果证据不足或仅有结构化元数据，返回 (None, early_exit_answer)，early_exit_answer 是直接可用的提示文本
+    - 如果证据充分，返回 ([system, user], None)，可直接传给 LLM
+    """
     context = build_context_for_llm(state.evidence_pack, max_tokens=8000)
+    answer_question = state.original_question or state.question
+
     if not context:
-        state.answer = "抱歉，没有找到充分的信息来回答您的问题。"
         state.needs_clarification = True
         state.clarification_questions = ["您能否提供更多上下文？"]
-        return state
+        return [], "抱歉，没有找到充分的信息来回答您的问题。"
 
     if _has_only_structured_metadata(state):
-        state.answer = (
+        state.needs_clarification = True
+        state.clarification_questions = ["请先摄入并审核相关 Wiki/原文证据，或换一个能命中已审核知识的问题。"]
+        return [], (
             "结构化元数据只说明知识库字段、指标口径、值域和审核状态，"
             "当前没有召回到已审核的 Wiki 卡片或原文切块证据，因此不能生成独立事实答案。"
         )
-        state.needs_clarification = True
-        state.clarification_questions = ["请先摄入并审核相关 Wiki/原文证据，或换一个能命中已审核知识的问题。"]
-        return state
 
     system, user_tpl = get_prompt("answer_generation")
     system = (
         f"{system}\n\n"
         "结构化元数据只能作为知识库字段、指标口径、值域和审核状态的辅助说明；"
         "不得把结构化元数据当作独立事实来源。回答事实性内容必须依赖已审核 Wiki 卡片或原文切块。"
+        "\n\n"
+        "重要：对话历史conversation_context仅用于理解用户指代（如'它'、'这个'指代什么），不是事实来源。"
+        "你的答案必须完全基于evidence_pack中的context内容，禁止使用conversation_context中的信息作为事实证据。"
     )
+
+    if state.applicability_summary:
+        system += f"\n\n{state.applicability_summary}。"
+        system += "\n在答案末尾，你必须明确标注本回答的适用范围（机型、手册类型、ATA章节）。如果所有来源适用范围一致，则统一标注；"
+        system += "如果存在不同来源适用范围不一致（如不同机型或版本），请在对应的内容后分别标注适用范围，不要混为一谈。"
+    if state.applicability_conflict:
+        system += "\n\n注意：证据中存在跨机型/版本冲突！请在答案中明确说明哪些内容适用于哪个机型/版本，存在哪些差异，不要强行合并回答。"
+
+    context_with_applicability = context
+    if state.applicability_summary:
+        conflict_note = "存在跨机型/版本冲突，请明确标注差异" if state.applicability_conflict else "无冲突"
+        context_with_applicability += (
+            f"\n\n---\n适用范围信息：{state.applicability_summary}\n"
+            f"冲突提示：{conflict_note}"
+        )
+
     user_prompt = user_tpl.substitute(
-        question=state.question,
-        context=context,
+        question=answer_question,
+        context=context_with_applicability,
     )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_prompt},
+    ], None
+
+
+def generate_answer_node(state: AgentState) -> AgentState:
+    return _run_sync(state)
+
+
+async def generate_answer_node_async(state: AgentState) -> AgentState:
+    return await _run_async(state)
+
+
+def _get_answer_question(state: AgentState) -> str:
+    return state.original_question or state.question
+
+
+def _run_sync(state: AgentState) -> AgentState:
+    messages, early_answer = build_answer_messages(state)
+    if early_answer is not None:
+        state.answer = early_answer
+        return state
+
+    try:
+        state.answer = llm_client.generate_sync(
+            messages=messages,
+            temperature=0.2,
+            max_tokens=2500,
+            scene="generate_answer",
+        )
+        if not isinstance(state.answer, str):
+            state.answer = str(state.answer)
+        state.answer = _finalize_answer_text(state.answer)
+    except Exception as e:
+        logger.error(f"generate_answer failed: {e}")
+        state.answer = _fallback_answer(state)
+
+    return state
+
+
+def _run(state: AgentState) -> AgentState:
+    return _run_sync(state)
+
+
+async def _run_async(state: AgentState) -> AgentState:
+    messages, early_answer = build_answer_messages(state)
+    if early_answer is not None:
+        state.answer = early_answer
+        return state
 
     try:
         state.answer = await llm_client.generate(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.2,
             max_tokens=2500,
             scene="generate_answer",
@@ -87,17 +140,27 @@ def _has_only_structured_metadata(state: AgentState) -> bool:
     )
 
 
+def _append_applicability_suffix(answer: str, state: AgentState) -> str:
+    if state.applicability_summary:
+        suffix = f"\n\n适用范围：{state.applicability_summary}"
+        if state.applicability_conflict:
+            suffix += "（注意：存在跨机型/版本冲突）"
+        return answer + suffix
+    return answer
+
+
 def _fallback_answer(state: AgentState) -> str:
-    """LLM 失败时，尽量输出自然语言摘要，而不是直接贴原文。"""
     items = state.evidence_pack.get("evidence_items", [])[:5]
+    answer_question = _get_answer_question(state)
     if not items:
-        return "抱歉，未能生成答案。"
+        return _finalize_answer_text(_append_applicability_suffix("抱歉，未能生成答案。", state))
 
     first = items[0]
     content = str(first.get("content", "") or "").strip()
     title = str(first.get("title", "") or "").strip()
     if first.get("type") == "wiki_card" and content:
-        return _naturalize_markdown_answer(title or state.question, content)
+        answer = _naturalize_markdown_answer(title or answer_question, content)
+        return _finalize_answer_text(_append_applicability_suffix(answer, state))
 
     summary_parts: list[str] = []
     for item in items:
@@ -111,10 +174,12 @@ def _fallback_answer(state: AgentState) -> str:
             summary_parts.append(f"{prefix}{compact}" if prefix else compact)
 
     if not summary_parts:
-        return "抱歉，未能生成答案。"
+        return _finalize_answer_text(_append_applicability_suffix("抱歉，未能生成答案。", state))
     if len(summary_parts) == 1:
-        return _finalize_answer_text(summary_parts[0])
-    return _finalize_answer_text("；".join(summary_parts))
+        answer = summary_parts[0]
+    else:
+        answer = "；".join(summary_parts)
+    return _finalize_answer_text(_append_applicability_suffix(answer, state))
 
 
 def _naturalize_markdown_answer(title: str, content: str) -> str:

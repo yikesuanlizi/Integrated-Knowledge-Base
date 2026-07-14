@@ -7,7 +7,8 @@
 - **知识摄入**：支持 PDF / DOCX / TXT / MD，自动分块、实体抽取、元数据推断
 - **知识编译**：两阶段 LLM 编译，生成结构化 Wiki 卡片
 - **检索引擎**：向量召回 + 全文检索 + BM25 重排 + Wikilink 图扩展
-- **Agent 编排**：LangGraph 12 节点 pipeline，三路并行召回 + 证据门控
+- **Agent 编排**：LangGraph 12 节点 Agentic RAG Pipeline，Context Builder + Retrieval Planner + 多路召回调度 + 证据门控 + 自纠错循环
+- **多轮对话**：Context Builder 利用历史对话做指代消解和查询重写，历史仅用于改写，不作为事实证据
 - **质量治理**：自动审核策略 + Linter + Freshness 检测 + 活动日志
 - **互操作**：MCP Server + JSONL/MD 导出导入
 
@@ -21,12 +22,13 @@
 │  /api/export  /api/mcp  /api/health         │
 ├─────────────────────────────────────────────┤
 │    LangGraph Agent Pipeline (12 节点)        │
-│  classify_intent → extract_query →          │
-│  [recall_wiki ∥ recall_chunks ∥            │
-│   recall_entities] → merge → expand_graph   │
+│  context_builder → classify_intent →        │
+│  extract_query → plan_retrieval →           │
+│  recall_dispatch [wiki∥chunks∥entities∥    │
+│   structured_metadata] → merge → expand     │
 │  → rerank → build_evidence →                │
 │  generate_answer → validate_evidence →      │
-│  correct_answer                            │
+│  correct_answer (→ extract_query 循环)      │
 ├─────────────────────────────────────────────┤
 │   Retrieval: Milvus + ES + BM25 + Graph     │
 ├─────────────────────────────────────────────┤
@@ -109,7 +111,17 @@ ai.gitee 请求约定：
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 6. 运行冒烟测试
+### 6. 启动 MCP stdio Server
+
+```bash
+poetry run rag-mcp-server
+# 或
+python -m app.mcp.stdio_server
+```
+
+MCP stdio Server 支持 `initialize`、`tools/list`、`tools/call` 和 `ping`，工具注册表复用 `app.mcp.tools`，可暴露目录摄入、知识编译、知识库问答和状态查询能力。
+
+### 7. 运行冒烟测试
 
 ```bash
 python scripts/smoke_test.py
@@ -136,6 +148,8 @@ python scripts/smoke_test.py
 | `/api/export/run` | POST | 导出 |
 | `/api/mcp/tools` | GET | MCP 工具列表 |
 | `/api/mcp/call` | POST | MCP 工具调用 |
+
+MCP 互操作同时提供 stdio Server：`poetry run rag-mcp-server`。
 
 ## 目录结构
 
@@ -175,18 +189,20 @@ python scripts/smoke_test.py
 
 ### LangGraph Agent 12 节点
 
-1. `classify_intent` - 意图分类
-2. `extract_query` - 查询扩展
-3. `recall_wiki` - 召回 Wiki 卡片
-4. `recall_chunks` - 召回原始 chunk
-5. `recall_entities` - 实体全文召回
+The query path uses a LangGraph Agentic RAG workflow with a Context Builder, query analysis, Retrieval Planner, controlled multi-channel recall, evidence construction, answer generation, evidence validation, and correction loop. Conversation history is used only for reference resolution and query rewriting; it is never treated as factual evidence.
+
+1. `context_builder` - 上下文构造：利用历史对话做指代消解和查询重写，历史仅用于改写，不作为事实证据
+2. `classify_intent` - 意图分类（规则打分）
+3. `extract_query` - 查询特征抽取
+4. `plan_retrieval` - 检索规划（LLM 动态选择召回通道，规则兜底）
+5. `recall_dispatch` - 多路召回调度：统一调度 wiki/chunks/entities/structured_metadata 四个通道
 6. `merge_results` - 合并去重
-7. `expand_graph` - Wikilink N-hop 扩展
-8. `rerank` - 混合重排
-9. `build_evidence` - 构造证据包
+7. `expand_graph` - Wikilink N-hop 图扩展
+8. `rerank` - 混合重排序
+9. `build_evidence` - 证据包构建
 10. `generate_answer` - LLM 生成答案
 11. `validate_evidence` - 证据充分性验证
-12. `correct_answer` - 不充分时降级
+12. `correct_answer` - 反思失败原因并改写 query，触发重新检索（自纠错循环）
 
 ### 质量治理
 

@@ -18,6 +18,10 @@ interface ChatTurn {
   retrievalTrace?: RetrievalTrace;
   intent?: QueryIntent;
   isStreaming?: boolean;
+  currentNode?: string;
+  currentNodeLabel?: string;
+  completedNodes?: string[];
+  phase?: "recalling" | "generating" | "done";
   timestamp: string;
 }
 
@@ -60,6 +64,8 @@ async function send() {
     text: "",
     citations: [],
     isStreaming: true,
+    completedNodes: [],
+    phase: "recalling",
     timestamp: new Date().toLocaleTimeString(),
   };
   conversation.value.push(assistantTurn);
@@ -80,15 +86,33 @@ async function send() {
         assistantTurn.retrievalTrace = trace;
         if (intent) assistantTurn.intent = intent;
         assistantTurn.isStreaming = false;
+        assistantTurn.phase = "done";
+        assistantTurn.currentNode = undefined;
+        assistantTurn.currentNodeLabel = undefined;
         loading.value = false;
       },
       (err) => {
         error.value = err.message;
         assistantTurn.isStreaming = false;
+        assistantTurn.phase = "done";
         loading.value = false;
         if (!assistantTurn.text) {
           assistantTurn.text = "⚠️ 查询失败：" + err.message;
         }
+      },
+      (node, label) => {
+        if (node === "generate_answer") {
+          assistantTurn.phase = "generating";
+        }
+        assistantTurn.currentNode = node;
+        assistantTurn.currentNodeLabel = label;
+        if (!assistantTurn.completedNodes) assistantTurn.completedNodes = [];
+        if (!assistantTurn.completedNodes.includes(node)) {
+          assistantTurn.completedNodes.push(node);
+        }
+      },
+      (trace, _mode) => {
+        assistantTurn.retrievalTrace = trace;
       },
     );
   } catch (e) {
@@ -120,6 +144,21 @@ function clearChat() {
   conversation.value = [];
 }
 
+const NODE_LABELS: Record<string, string> = {
+  classify_intent: "意图分类",
+  extract_query: "查询特征抽取",
+  recall_dispatch: "多路召回",
+  merge_results: "合并去重",
+  expand_graph: "Wiki图扩展",
+  rerank: "混合重排序",
+  build_evidence: "证据包构建",
+  generate_answer: "生成答案",
+};
+
+function getNodeLabel(node: string): string {
+  return NODE_LABELS[node] || node;
+}
+
 const hasConversation = computed(() => conversation.value.length > 0);
 const latestCitations = computed(() => conversation.value[conversation.value.length - 1]?.citations || []);
 
@@ -128,9 +167,6 @@ onMounted(async () => {
     const fixtures = await getEvalFixtures();
     if (fixtures.questions?.length) {
       sampleQuestions.value = fixtures.questions;
-      if (!question.value.trim()) {
-        question.value = fixtures.questions[0];
-      }
     }
   } catch {
     // Keep local fallback questions when fixture loading fails.
@@ -168,6 +204,38 @@ onMounted(async () => {
               <div class="flex-1 bg-white rounded-xl rounded-tl-sm p-4 border border-slate-200">
                 <!-- 意图 Badge -->
                 <IntentBadge v-if="turn.intent" :intent="turn.intent" class="mb-3" />
+
+                <!-- 召回阶段进度条 -->
+                <div v-if="turn.isStreaming && turn.phase === 'recalling'" class="mb-3">
+                  <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
+                    <div class="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span>正在{{ turn.currentNodeLabel || "处理" }}...</span>
+                  </div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <span
+                      v-for="node in turn.completedNodes || []"
+                      :key="node"
+                      class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                      {{ getNodeLabel(node) }}
+                    </span>
+                    <span
+                      v-if="turn.currentNode && turn.currentNode !== 'generate_answer'"
+                      class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 animate-pulse"
+                    >
+                      {{ turn.currentNodeLabel }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 生成阶段指示器 -->
+                <div v-if="turn.isStreaming && turn.phase === 'generating' && !turn.text" class="mb-3">
+                  <div class="flex items-center gap-2 text-xs text-slate-500">
+                    <div class="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span>AI 正在生成回答...</span>
+                  </div>
+                </div>
 
                 <!-- 回答（带引用跳转） -->
                 <div class="markdown">
@@ -244,7 +312,7 @@ onMounted(async () => {
               v-for="q in sampleQuestions"
               :key="q"
               @click="pickSample(q)"
-              class="block w-full text-left text-xs border border-slate-200 rounded-lg px-4 py-3 bg-white hover:bg-sample-hover cursor-pointer transition-colors"
+              class="block w-full text-left text-xs border border-slate-200 rounded-lg px-4 py-3 bg-white hover:bg-slate-50 cursor-pointer transition-colors"
             >
               {{ q }}
             </button>

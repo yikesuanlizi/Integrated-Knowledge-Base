@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api.compile import router as compile_router
 from app.api.chunk_review import router as chunk_review_router
+from app.api.compile import router as compile_router
+from app.api.config import router as config_router
 from app.api.eval import router as eval_router
 from app.api.export import router as export_router
 from app.api.health import router as health_router
@@ -38,8 +39,8 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Agentic Knowledge OS",
-        description="Agentic RAG System: Document ingestion to intelligent Q&A",
+        title="航空维修知识平台",
+        description="Agentic RAG System: 航空维修文档摄入到智能问答",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/api/health", tags=["health"])
     app.include_router(knowledge_router, prefix="/api/knowledge", tags=["knowledge"])
     app.include_router(monitor_router, prefix="/api/monitor", tags=["monitor"])
+    app.include_router(config_router, prefix="/api/config", tags=["config"])
 
     return app
 

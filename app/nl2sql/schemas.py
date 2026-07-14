@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-RouteName = Literal["evidence_lookup"]
+RouteName = Literal["evidence_lookup", "data_query"]
 
 
 class RouteDecision(BaseModel):
@@ -30,7 +30,7 @@ class SQLResult(BaseModel):
 
 class NL2SQLQueryResponse(BaseModel):
     question: str
-    mode: Literal["structured_lookup"] = "structured_lookup"
+    mode: Literal["data_query"] = "data_query"
     sql: str
     columns: list[str]
     rows: list[dict[str, Any]]
@@ -53,3 +53,4 @@ class NL2SQLStatusResponse(BaseModel):
     metadata: dict[str, int] = Field(default_factory=dict)
     indexes: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+

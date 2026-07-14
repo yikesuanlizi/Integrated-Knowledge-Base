@@ -24,6 +24,15 @@ class AppConfig(BaseSettings):
     WIKI_COLLECTION: str = "wiki_cards"
     STRICT_REVIEW_GATE: bool = True
 
+    RECALL_EXECUTION_MODE: str = "parallel"
+    RECALL_PARALLEL_MAX_WORKERS: int = 4
+    RECALL_CHANNEL_TIMEOUTS: dict = {
+        "wiki": 1.5,
+        "chunks": 2.5,
+        "entities": 1.8,
+        "structured_metadata": 3.5,
+    }
+
     ELASTICSEARCH_URL: Optional[str] = None
     ES_HOST: str = "localhost"
     ES_PORT: int = 9200

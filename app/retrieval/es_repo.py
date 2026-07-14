@@ -8,7 +8,10 @@ from app.clients.es_client import get_es_client
 class ElasticsearchRepository:
     def __init__(self, index_name: str = "knowledge_chunks"):
         self.index_name = index_name
-        self.client = get_es_client()
+
+    @property
+    def client(self):
+        return get_es_client()
 
     async def create_index(self, mappings: Optional[dict] = None) -> None:
         if not await self.client.indices.exists(index=self.index_name):
@@ -30,6 +33,9 @@ class ElasticsearchRepository:
                         "manual_type": {"type": "keyword"},
                         "ata_chapter": {"type": "keyword"},
                         "aircraft_model": {"type": "keyword"},
+                        "manual_revision": {"type": "keyword"},
+                        "effective_date": {"type": "keyword"},
+                        "applicability": {"type": "keyword"},
                         "status": {"type": "keyword"},
                     }
                 }
@@ -101,6 +107,12 @@ class ElasticsearchRepository:
                 "section_path": source.get("section_path"),
                 "block_type": source.get("block_type"),
                 "page_numbers": source.get("page_numbers"),
+                "manual_type": source.get("manual_type"),
+                "ata_chapter": source.get("ata_chapter"),
+                "aircraft_model": source.get("aircraft_model"),
+                "manual_revision": source.get("manual_revision"),
+                "effective_date": source.get("effective_date"),
+                "applicability": source.get("applicability"),
                 "status": source.get("status"),
                 "score": hit["_score"],
             })
@@ -151,6 +163,12 @@ class ElasticsearchRepository:
                 "section_path": source.get("section_path"),
                 "block_type": source.get("block_type"),
                 "page_numbers": source.get("page_numbers"),
+                "manual_type": source.get("manual_type"),
+                "ata_chapter": source.get("ata_chapter"),
+                "aircraft_model": source.get("aircraft_model"),
+                "manual_revision": source.get("manual_revision"),
+                "effective_date": source.get("effective_date"),
+                "applicability": source.get("applicability"),
                 "status": source.get("status"),
                 "score": hit["_score"],
             })
@@ -198,7 +216,10 @@ class ElasticsearchRepository:
 class EntityESRepository:
     def __init__(self, index_name: str = "entities"):
         self.index_name = index_name
-        self.client = get_es_client()
+
+    @property
+    def client(self):
+        return get_es_client()
 
     async def create_index(self) -> None:
         if not await self.client.indices.exists(index=self.index_name):
@@ -274,7 +295,10 @@ class EntityESRepository:
 class WikiCardESRepository:
     def __init__(self, index_name: str = "wiki_cards"):
         self.index_name = index_name
-        self.client = get_es_client()
+
+    @property
+    def client(self):
+        return get_es_client()
 
     async def create_index(self) -> None:
         if not await self.client.indices.exists(index=self.index_name):
@@ -323,7 +347,6 @@ class WikiCardESRepository:
         filters: Optional[dict] = None,
         from_: int = 0,
     ) -> List[dict]:
-        # keyword 为空时用 match_all（支持无关键词列表），否则用 multi_match
         must_clause: List[dict] = []
         if query and query.strip():
             must_clause.append({
@@ -399,5 +422,4 @@ class WikiCardESRepository:
 
 
 def _normalize_mappings(mappings: dict) -> dict:
-    """Accept either an ES create-index body or the mappings object itself."""
     return mappings.get("mappings", mappings)

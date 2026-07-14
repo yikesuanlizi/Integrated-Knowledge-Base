@@ -11,9 +11,20 @@ from app.models.schemas import QueryResponse
 from app.services.monitor_service import save_query_trace_fire_and_forget
 
 
-async def run_unified_query(question: str, top_k: int = 8) -> QueryResponse:
+async def run_unified_query(
+    question: str,
+    top_k: int = 8,
+    conversation_id: str | None = None,
+    history: list[dict[str, Any]] | None = None,
+) -> QueryResponse:
     """Execute the single RAG/Wiki Agent graph and adapt its state to the API response."""
-    state = await asyncio.to_thread(run_agent_sync, question, top_k)
+    state = await asyncio.to_thread(
+        run_agent_sync,
+        question,
+        top_k,
+        conversation_id,
+        history or [],
+    )
     # 异步持久化监控数据（fire-and-forget）
     save_query_trace_fire_and_forget(state)
     mode = "mixed" if state.uses_structured_metadata else "evidence_lookup"

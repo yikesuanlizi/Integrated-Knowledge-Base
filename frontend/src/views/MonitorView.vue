@@ -10,8 +10,8 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
-  RefreshCw,
 } from "lucide-vue-next";
+import AppIcon from "@/components/AppIcon.vue";
 import {
   listMonitorQueries,
   getMonitorQueryDetail,
@@ -331,37 +331,30 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-7xl">
-    <!-- 标题栏 -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h1 class="text-xl font-bold text-slate-900">运行监控</h1>
-      </div>
+  <div class="mx-auto max-w-7xl space-y-4 px-6 py-3">
+    <div class="flex justify-end">
       <button
+        class="flex items-center space-x-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 active:scale-95 disabled:opacity-60"
         @click="refreshAll"
-        class="flex items-center space-x-2 bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-all active:scale-95"
       >
-        <RefreshCw class="w-4 h-4" />
+        <AppIcon name="refresh-cw" class="h-4 w-4" />
         <span>刷新数据</span>
       </button>
     </div>
 
-    <!-- Tab 切换 -->
-    <div class="border-b border-slate-200 flex space-x-8 mb-6 overflow-x-auto bg-white">
-      <button
-        v-for="tab in tabs"
-        :key="tab.key"
-        @click="switchTab(tab.key)"
-        class="pb-3 px-1 text-sm flex items-center space-x-2 transition-all border-b-2"
-        :class="
-          currentTab === tab.key
-            ? 'border-indigo-600 text-indigo-600 font-semibold'
-            : 'border-transparent text-slate-500 hover:text-slate-700 font-medium'
-        "
-      >
-        <component :is="tab.icon" class="w-4 h-4" />
-        <span>{{ tab.label }}</span>
-      </button>
+    <div>
+      <div class="governance-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="governance-tab"
+          :class="currentTab === tab.key ? 'is-active' : ''"
+          @click="switchTab(tab.key)"
+        >
+          <component :is="tab.icon" class="h-4 w-4" />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- ============ Tab 1: 查询历史 ============ -->
@@ -520,8 +513,8 @@ onMounted(() => {
     <div v-else-if="currentTab === 'llm_calls'">
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div class="flex items-center space-x-3">
-            <label class="text-sm font-medium text-slate-600">场景:</label>
+          <div class="flex items-center gap-3">
+            <label class="text-sm font-medium text-slate-600 shrink-0">场景:</label>
             <select
               v-model="sceneFilter"
               @change="llmPage = 1; expandedCallId = null; callDetail = null; loadLLMCalls()"
@@ -529,7 +522,7 @@ onMounted(() => {
             >
               <option v-for="opt in sceneOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
-            <button @click="llmPage = 1; expandedCallId = null; callDetail = null; loadLLMCalls()" class="bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-4 py-1.5 text-sm font-medium">刷新</button>
+            <button @click="llmPage = 1; expandedCallId = null; callDetail = null; loadLLMCalls()" class="bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-4 py-1.5 text-sm font-medium ml-2">刷新</button>
           </div>
           <span class="text-xs text-slate-500">共 {{ llmTotal }} 条调用</span>
         </div>
@@ -791,3 +784,40 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.governance-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.75rem;
+}
+
+.governance-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  color: #64748b;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.governance-tab:hover {
+  border-color: #cbd5e1;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.governance-tab.is-active {
+  border-color: #818cf8;
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 600;
+}
+</style>

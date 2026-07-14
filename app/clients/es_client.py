@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+import asyncio
 from elasticsearch import AsyncElasticsearch
 
 from app.conf.app_config import config
@@ -9,18 +10,21 @@ from app.core.log import logger
 class ESClientManager:
     def __init__(self):
         self._client: Optional[AsyncElasticsearch] = None
+        self._loop_id: Optional[int] = None
 
     def init(self):
-        if self._client is None:
-            kwargs: Dict[str, Any] = {"hosts": [config.es_url]}
-            if config.ES_USER:
-                kwargs["basic_auth"] = (config.ES_USER, config.ES_PASSWORD)
-            self._client = AsyncElasticsearch(**kwargs)
-            logger.info("Elasticsearch client initialized")
+        if self._client is not None and self._loop_id == id(asyncio.get_event_loop()):
+            return
+        kwargs: Dict[str, Any] = {"hosts": [config.es_url]}
+        if config.ES_USER:
+            kwargs["basic_auth"] = (config.ES_USER, config.ES_PASSWORD)
+        self._client = AsyncElasticsearch(**kwargs)
+        self._loop_id = id(asyncio.get_event_loop())
+        logger.info("Elasticsearch client initialized")
 
     @property
     def client(self) -> AsyncElasticsearch:
-        if self._client is None:
+        if self._client is None or self._loop_id != id(asyncio.get_event_loop()):
             self.init()
         return self._client
 
